@@ -5,7 +5,6 @@ hook.Add("PlayerInitialSpawn", "BCORE_Unbox_Load", function(ply)
     timer.Simple(1, function()
         if IsValid(ply) then
             u:Sync(ply)
-            print("INITSPAWN CALLSED PLAYERS SHOULD BE SYNCED")
         end
     end)
 end)

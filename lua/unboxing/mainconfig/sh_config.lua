@@ -19,7 +19,7 @@ cfg.Colors = {
 
 -- Register with BCORE.Config (beep-framework), if present, so all of the above (plus the
 -- rarity weights / rarity price multipliers / bulk-discount tiers that used to be hardcoded
--- directly in sv_afunc.lua, never even in a config file at all) becomes in-game
+-- directly in sv_economy.lua, never even in a config file at all) becomes in-game
 -- editable/persisted. This must be a SHARED registration (not server-only) even though the
 -- rarity/pricing values are only ever used server-side, because the config UI's schema is
 -- never itself synced over the network - only Values are (see BCORE.Config's own sync file) -

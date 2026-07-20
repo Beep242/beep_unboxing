@@ -1,5 +1,4 @@
 BCORE.Unbox.UI = BCORE.Unbox.UI or {}
-local u = BCORE.Unbox.UI.networking
 local thread = BCORE.netstream
 
 for i = 1, 200 do
@@ -10,9 +9,6 @@ end
 
 
 thread.Hook("BCORE:UnboxSendData", function(data)
-    print("HEY")
-    print(data)
     LocalPlayer().BCORE_UNBOX_DATA = data or {}
-    PrintTable(LocalPlayer().BCORE_UNBOX_DATA)
 end)
 
