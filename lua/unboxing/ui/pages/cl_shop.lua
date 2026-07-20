@@ -10,7 +10,7 @@ local RCLR = {
     legendary = Color(255,195,  0),
 }
 
-function FixButton(btn)
+local function FixButton(btn)
     if not IsValid(btn) then return end
     btn:SetMouseInputEnabled(true)
     btn:SetKeyboardInputEnabled(false)

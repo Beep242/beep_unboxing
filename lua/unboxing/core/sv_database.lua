@@ -35,11 +35,14 @@ function u:LoadPlayer(ply)
         }
     else
         u.Players[id] = { inventory = {}, cases = {} }
-        sql.Query("INSERT INTO bcore_unbox VALUES (" ..
+        local ok = sql.Query("INSERT INTO bcore_unbox VALUES (" ..
             sql.SQLStr(id) .. "," ..
             sql.SQLStr("{}") .. "," ..
             sql.SQLStr("{}") .. ")"
         )
+        if ok == false then
+            ErrorNoHalt("[BCORE.Unbox] Failed to insert new player row for " .. id .. ": " .. tostring(sql.LastError()) .. "\n")
+        end
     end
 end
 
@@ -48,9 +51,12 @@ function u:SavePlayer(ply)
     local data = u.Players[id]
     if not data then return end
 
-    sql.Query("UPDATE bcore_unbox SET " ..
+    local ok = sql.Query("UPDATE bcore_unbox SET " ..
         "inventory = " .. sql.SQLStr(encode(data.inventory)) .. "," ..
         "cases = " .. sql.SQLStr(encode(data.cases)) ..
         " WHERE steamid = " .. sql.SQLStr(id)
     )
+    if ok == false then
+        ErrorNoHalt("[BCORE.Unbox] Failed to save inventory for " .. id .. ": " .. tostring(sql.LastError()) .. "\n")
+    end
 end

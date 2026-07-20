@@ -213,15 +213,13 @@ function BCORE.Unbox:Open()
     end)
 
     -- ADMIN BUTTON (only visible to admins) --------------------------------
+    -- Used to read BCORE.Inventory.config.Admins (the wrong addon's admin list, and one that
+    -- doesn't exist if beep-inventory isn't installed) - now uses the shared config admin gate.
     local function isLocalAdmin()
-        local lp = LocalPlayer and IsValid(LocalPlayer()) and LocalPlayer() or nil
-        if not lp then return false end
-        if lp:IsSuperAdmin() then return true end
-        for _, g in ipairs((BCORE.Inventory and BCORE.Inventory.config and
-                             BCORE.Inventory.config.Admins) or {}) do
-            if lp:IsUserGroup(g) then return true end
+        if BCORE.IsConfigAdmin then
+            return BCORE:IsConfigAdmin(LocalPlayer())
         end
-        return false
+        return IsValid(LocalPlayer()) and LocalPlayer():IsSuperAdmin() or false
     end
 
     if isLocalAdmin() then

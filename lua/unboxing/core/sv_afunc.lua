@@ -9,7 +9,10 @@ u.Cases = u.Cases or {}
 u.Players = u.Players or {}
 u.Types = u.Types or {}
 
-local rarityWeights = {
+-- These defaults are overridden in-game via BCORE.Config once mainconfig/sh_config.lua loads
+-- (see its own SyncUnboxConfigMirror) - kept as real fallback values here too so this addon
+-- still works with the same behavior as before if that config layer is ever unavailable.
+u.RarityWeights = u.RarityWeights or {
     common = 60,
     uncommon = 25,
     rare = 10,
@@ -20,7 +23,7 @@ local rarityWeights = {
 local function rollRarity()
     local roll = math.random(1,100)
     local acc = 0
-    for r, w in pairs(rarityWeights) do
+    for r, w in pairs(u.RarityWeights) do
         acc = acc + w
         if roll <= acc then
             return r
@@ -220,6 +223,14 @@ u.RarityPricing = u.RarityPricing or {
     legendary = 4
 }
 
+-- Sorted descending by minAmount - the first tier whose threshold the purchase amount meets
+-- or exceeds wins. Also overridden in-game via BCORE.Config (see sh_config.lua).
+u.BulkDiscounts = u.BulkDiscounts or {
+    { minAmount = 50, multiplier = 0.85 },
+    { minAmount = 20, multiplier = 0.9 },
+    { minAmount = 10, multiplier = 0.95 },
+}
+
 function u:GetDynamicPrice(itemName, amount)
     local item = u.Items[itemName]
     if not item or not item.basePrice then return end
@@ -228,9 +239,12 @@ function u:GetDynamicPrice(itemName, amount)
     local rarityMul = u.RarityPricing[rarity] or 1
 
     local bulkMul = 1
-    if amount >= 50 then bulkMul = 0.85
-    elseif amount >= 20 then bulkMul = 0.9
-    elseif amount >= 10 then bulkMul = 0.95 end
+    for _, tier in ipairs(u.BulkDiscounts) do
+        if amount >= (tier.minAmount or math.huge) then
+            bulkMul = tier.multiplier or 1
+            break
+        end
+    end
 
     local pricePer = math.floor(item.basePrice * rarityMul * bulkMul)
     return pricePer, pricePer * amount
@@ -262,7 +276,13 @@ end)
 
 function u:PurchaseItem(ply, itemName, amount)
     if not IsValid(ply) then return end
-    if amount <= 0 then return end
+    amount = math.max(1, math.floor(tonumber(amount) or 1))
+
+    -- The shop UI hides an item with soldInStore=false purely client-side (cl_shop.lua) - the
+    -- server has to enforce it too, or a crafted purchase request could still buy anything
+    -- with a basePrice regardless of whether an admin hid it from the store.
+    local item = u.Items[itemName]
+    if not item or not item.soldInStore then return end
 
     local pricePer, total = self:GetDynamicPrice(itemName, amount)
     if not total then return end

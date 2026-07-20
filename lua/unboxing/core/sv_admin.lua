@@ -31,19 +31,15 @@ local function cleanItems()
 end
 
 function UA:IsAdmin(ply)
-    if not IsValid(ply) then return false end
-
-    if ply:IsSuperAdmin() then
-        return true
+    -- Used to read BCORE.Inventory.config.Admins - the WRONG addon's admin list, and one
+    -- that doesn't exist at all if beep-inventory isn't installed (leaving only SuperAdmins
+    -- able to reach this panel regardless of any configured admin group). Now uses the one
+    -- shared admin gate every addon's config/admin panels go through.
+    if BCORE.IsConfigAdmin then
+        return BCORE:IsConfigAdmin(ply)
     end
 
-    for _, group in ipairs((BCORE.Inventory and BCORE.Inventory.config and BCORE.Inventory.config.Admins) or {}) do
-        if ply:IsUserGroup(group) then
-            return true
-        end
-    end
-
-    return false
+    return IsValid(ply) and ply:IsSuperAdmin() or false
 end
 
 function UA:Log(ply, action, detail)
@@ -454,7 +450,9 @@ thread.Hook("BCORE:UnboxAdmin.RemovePlayerItem", function(ply, data)
     if not p.inventory or not p.inventory[data.itemKey] then
         respond(ply, false, "Item not found"); return
     end
-    p.inventory[data.itemKey] = (p.inventory[data.itemKey] or 0) - (data.amount or 1)
+    -- A negative/non-numeric amount used to silently ADD items instead of removing them.
+    local removeAmount = math.max(1, math.floor(tonumber(data.amount) or 1))
+    p.inventory[data.itemKey] = (p.inventory[data.itemKey] or 0) - removeAmount
     if p.inventory[data.itemKey] <= 0 then p.inventory[data.itemKey] = nil end
     u:SavePlayer(target); u:Sync(target)
     UA:Log(ply, "RemovePlayerItem", target:Nick().." - "..data.itemKey)
@@ -477,7 +475,9 @@ thread.Hook("BCORE:UnboxAdmin.RemovePlayerCase", function(ply, data)
     if not p.cases or not p.cases[data.caseKey] then
         respond(ply, false, "Case not found"); return
     end
-    p.cases[data.caseKey] = (p.cases[data.caseKey] or 0) - (data.amount or 1)
+    -- A negative/non-numeric amount used to silently ADD cases instead of removing them.
+    local removeAmount = math.max(1, math.floor(tonumber(data.amount) or 1))
+    p.cases[data.caseKey] = (p.cases[data.caseKey] or 0) - removeAmount
     if p.cases[data.caseKey] <= 0 then p.cases[data.caseKey] = nil end
     u:SavePlayer(target)
     UA:Log(ply, "RemovePlayerCase", target:Nick().." - "..data.caseKey)
