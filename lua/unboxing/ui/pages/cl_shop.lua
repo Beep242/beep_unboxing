@@ -2,14 +2,6 @@ local colors = BCORE.Unbox.config.sh.Colors
 local thread  = BCORE.netstream
 local IC      = BCORE.Unbox.Icons
 
-local RCLR = {
-    common    = Color(190,190,190),
-    uncommon  = Color(0,  200, 80),
-    rare      = Color(30, 120,255),
-    epic      = Color(175, 30,255),
-    legendary = Color(255,195,  0),
-}
-
 local function FixButton(btn)
     if not IsValid(btn) then return end
     btn:SetMouseInputEnabled(true)
@@ -17,14 +9,11 @@ local function FixButton(btn)
 end
 
 local RORDER = {"legendary","epic","rare","uncommon","common"}
-local function rc(r) return RCLR[string.lower(r or "common")] or Color(190,190,190) end
-local function fmt(n)
-    if not n then return "$0" end
-    n = math.floor(tonumber(n) or 0)
-    local s,res,c = tostring(n),"",0
-    for i=#s,1,-1 do c=c+1; res=s:sub(i,i)..res; if c%3==0 and i>1 then res=","..res end end
-    return "$"..res
-end
+-- Both delegate to the shared, config-driven versions in ui/cl_theme.lua now (was its own
+-- hardcoded rarity-color table + hand-rolled comma inserter, duplicated across this
+-- file/cl_dash.lua/cl_inventory.lua/cl_unbox.lua).
+local function rc(r) return BCORE.Unbox:RarityColor(r) end
+local function fmt(n) return BCORE.Unbox:FormatMoney(n) end
 local function prettyKey(key)
     if not key or key=="" then return "Unknown" end
     return key:gsub("^weapon_",""):gsub("^swep_",""):gsub("^npc_","")
@@ -58,15 +47,12 @@ end
 local S  = { filter="all", qty={} }
 local QO = {1,5,10,25,50}
 
-thread.Hook("BCORE:UnboxSendData", function(data)
-    LocalPlayer().BCORE_UNBOX_DATA = data or {}
-    BCORE.Unbox._shopCacheKey = nil
-    if IsValid(BCORE.Unbox.ShopScroll) and BCORE.Unbox.ShopScroll:IsVisible() then
-        timer.Create("BCORE.Shop.Refresh", 0.3, 1, function()
-            if IsValid(BCORE.Unbox.ShopScroll) then BCORE.Unbox:RefreshShop() end
-        end)
-    end
-end)
+-- Data sync (LocalPlayer().BCORE_UNBOX_DATA, the shop cache-key reset, and the actual
+-- RefreshShop()/RefreshInventory()/RefreshDash() calls) is all handled in ONE place,
+-- cl_main.lua - netstream.Hook only keeps room for a single callback per message name,
+-- so a second thread.Hook("BCORE:UnboxSendData", ...) here would silently replace
+-- (not add to) that one instead of running alongside it. See cl_main.lua's own comment
+-- on its hook for the full story.
 
 concommand.Add("shopdbg", function()
     local data = LocalPlayer().BCORE_UNBOX_DATA
@@ -240,13 +226,15 @@ function BCORE.Unbox:RefreshShop()
                 draw.RoundedBox(0,20,52,w-40,1,ColorAlpha(color_white,20))
             end)
 
+            -- Standard door-icon exit button - the same one every other popup in this codebase
+            -- uses (F4, the main Unbox frame, the socket menu, ...), not a one-off red "✕".
             local closeBtn = BUi.Create("DButton", frame)
             closeBtn:SetPos(frame:GetWide()-38, 6); closeBtn:SetSize(32,32); closeBtn:SetText("")
             closeBtn:SetMouseInputEnabled(true)
-            closeBtn:ClearPaint():On("Paint",function(_,w2,h2)
-                draw.RoundedBox(6,1,1,w2-2,h2-2,Color(160,40,40))
-                draw.SimpleText("✕","BCORE.Unboxs.13",w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-            end)
+            closeBtn:BUi():ClearPaint():Background(Color(56,56,56,200),5):FadeIn(0.5):On("Paint",function(_,w2,h2)
+                draw.RoundedBox(5,1,1,w2-2,h2-2,colors.accent)
+                BUi.DrawImgur(0,0,w2,h2,"https://invisibalfan-ui.github.io/bui_images/images/0cjxwbc.png",color_white)
+            end):FadeHover(Color(100,0,0,90),6,8)
             closeBtn:On("DoClick", function() frame:Remove() end)
 
             local scroll = BUi.Create("DScrollPanel", frame)

@@ -1,8 +1,6 @@
 local C      = BCORE.Unbox.config.sh.Colors
 local thread = BCORE.netstream
 
-local ADMIN_PASSWORD = "s"
-
 local RCLR = {
     Common    = Color(190,190,190), Uncommon = Color(0,  200, 80),
     Rare      = Color(30, 120,255), Epic     = Color(175, 30,255),
@@ -11,12 +9,13 @@ local RCLR = {
 local RARITIES = {"Common","Uncommon","Rare","Epic","Legendary"}
 local function rclr(r) return RCLR[r] or Color(190,190,190) end
 
-local adm = { cases={}, items={}, logs={}, players={}, tab="cases", selCase=nil, selItem=nil, selPlayer=nil }
+local adm = { cases={}, items={}, logs={}, players={}, typeCode={}, tab="cases", selCase=nil, selItem=nil, selPlayer=nil, selType=nil }
 
 thread.Hook("BCORE:UnboxAdmin.SendData", function(data)
-    adm.cases = data.cases or {}
-    adm.items = data.items or {}
-    adm.logs  = data.logs  or {}
+    adm.cases    = data.cases    or {}
+    adm.items    = data.items    or {}
+    adm.logs     = data.logs     or {}
+    adm.typeCode = data.typeCode or {}
     if IsValid(BCORE.UnboxAdmin.frame) then BCORE.UnboxAdmin:Refresh() end
 end)
 
@@ -35,26 +34,39 @@ thread.Hook("BCORE:UnboxAdmin.Result", function(data)
 end)
 
 function BCORE.Unbox:OpenUnboxAdmin()
-    local popup = BUi.Create("BUi.Popup")
-    popup:SetName("Unbox Admin")
-    popup:SetMode("textentry", {
-        placeholder = "Enter admin password",
-        callback = function(txt)
-            if txt == ADMIN_PASSWORD then BCORE.UnboxAdmin:Open()
-            else chat.AddText(Color(255,60,60), "[Unbox Admin] Wrong password.") end
-        end,
-    })
+    -- Used to gate this behind a hardcoded one-character "password" ("s") - real
+    -- authorization was always the separate server-side UA:IsAdmin check in sv_admin.lua
+    -- (every thread.Hook handler in there checks it independently), so the client-side
+    -- password never actually protected anything and just added a pointless prompt. This
+    -- now uses the same permission check every other admin entry point in this codebase does.
+    if BCORE.IsConfigAdmin and BCORE:IsConfigAdmin(LocalPlayer()) then
+        BCORE.UnboxAdmin:Open()
+    else
+        chat.AddText(Color(255,60,60), "[Unbox Admin] You don't have permission to open this.")
+    end
 end
 
 BCORE.UnboxAdmin = BCORE.UnboxAdmin or {}
 local UA = BCORE.UnboxAdmin
 
-local function openBUiMenu(options, onPick)
+-- owner (optional): the panel that triggered this menu (e.g. the dropdown button itself) - passed
+-- straight to BUi.DMenu:SetOwner, which already has real "auto-close if my owner gets removed"
+-- logic built in (cl_dmenu.lua's own Think). Without it, this menu had no idea its OWN owner
+-- (the dropdown button) could be removed out from under it by an admin-panel Refresh() while the
+-- menu was still open (a data update arriving from the server mid-click) - reproduced directly:
+-- picking an option after that pointed straight at a dead panel ("Tried to use a NULL Panel!").
+local function openBUiMenu(options, onPick, owner)
     local m = vgui.Create("BUi.DMenu")
     m:SetWide(BUi:Scale(300))
     for _,opt in ipairs(options) do
-        m:AddOption(opt.label, function() onPick(opt.value) end)
+        m:AddOption(opt.label, function()
+            -- Belt-and-suspenders alongside SetOwner above: never run the pick callback against
+            -- an owner that's already gone, even if this menu somehow stayed open regardless.
+            if owner and not IsValid(owner) then return end
+            onPick(opt.value)
+        end)
     end
+    if owner then m:SetOwner(owner) end
     m:Open()
     return m
 end
@@ -94,7 +106,7 @@ function UA:Open()
         draw.SimpleText("ADMIN PANEL", "BCORE.Unboxs.12",w/2,h/2+9,ColorAlpha(C.cwhite,180),TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
     end)
 
-    for _,td in ipairs({{id="cases",label="📦  CASES"},{id="items",label="🔫  ITEMS"},{id="logs",label="📋  LOGS"},{id="players",label="👥  PLAYERS"}}) do
+    for _,td in ipairs({{id="cases",label="📦  CASES"},{id="items",label="🔫  ITEMS"},{id="types",label="🧩  TYPES"},{id="logs",label="📋  LOGS"},{id="players",label="👥  PLAYERS"}}) do
         local fid=td.id
         local tb=BUi.Create("DButton",topbar)
         tb:Stick(LEFT,0,6,10,0,10); tb:SetWide(BUi:Scale(110)); tb:SetText("")
@@ -134,6 +146,7 @@ function UA:Refresh()
     self.body:Clear()
     if     adm.tab=="cases"   then self:BuildCasesTab()
     elseif adm.tab=="items"   then self:BuildItemsTab()
+    elseif adm.tab=="types"   then self:BuildTypesTab()
     elseif adm.tab=="players" then self:BuildPlayersTab()
     else                           self:BuildLogsTab() end
 end
@@ -167,6 +180,37 @@ local function makeField(parent, label, val, hint, numOnly)
     return e
 end
 
+-- Multi-line "on use" code editor for an item (u:RunItemOnUseCode, sv_economy.lua) - same
+-- visual language as makeField's single-line entries, just multiline and FILL-docked instead
+-- of a fixed 52px row, since a real snippet of Lua needs a lot more room than a name/price.
+local function makeCodeField(parent, label, val)
+    local wrap = BUi.Create("DPanel", parent)
+    wrap:Dock(FILL); wrap:DockMargin(0,10,0,0); wrap:SetPaintBackground(false)
+
+    local lblRow = BUi.Create("DPanel", wrap)
+    lblRow:Dock(TOP); lblRow:SetTall(BUi:Scale(20)); lblRow:SetPaintBackground(false)
+    lblRow:On("Paint", function(_,w,h)
+        draw.SimpleText(label,"BCORE.Unboxs.12",0,h/2,ColorAlpha(C.cwhite,155),TEXT_ALIGN_LEFT,TEXT_ALIGN_CENTER)
+        draw.SimpleText("ply, item available as locals - leave blank for default behavior","BCORE.Unbox.11",w,h/2,ColorAlpha(C.cwhite,70),TEXT_ALIGN_RIGHT,TEXT_ALIGN_CENTER)
+    end)
+
+    local e = BUi.Create("DTextEntry", wrap)
+    e:Dock(FILL); e:DockMargin(0,4,0,0)
+    e:SetMultiline(true)
+    e:ReadyTextbox()
+    e:SetFont("BCORE.Unboxs.14"); e:SetTextColor(color_white); e:SetCursorColor(C.tert)
+    e:SetPaintBackground(false); e:SetValue(tostring(val or ""))
+    e.PaintOver = function(s,w,h)
+        draw.RoundedBox(6,0,0,w,h,ColorAlpha(C.bg,200))
+        if s:IsEditing() then
+            draw.RoundedBox(6,0,0,w,h,ColorAlpha(C.tert,18)); draw.RoundedBox(6,0,0,2,h,C.tert)
+        else
+            draw.RoundedBox(6,0,0,1,h,ColorAlpha(C.cwhite,40))
+        end
+    end
+    return e
+end
+
 local function makeDropdown(parent, label, options, current)
     local row = BUi.Create("DPanel",parent)
     row:Dock(TOP); row:DockMargin(0,6,0,0); row:SetTall(BUi:Scale(52))
@@ -189,7 +233,7 @@ local function makeDropdown(parent, label, options, current)
     btn:On("DoClick", function(s)
         local opts={}
         for _,opt in ipairs(options) do table.insert(opts,{label=opt,value=opt}) end
-        openBUiMenu(opts,function(val) s._value=val end)
+        openBUiMenu(opts,function(val) s._value=val end, s)
     end)
     btn.GetValue = function(s) return s._value end
     return btn
@@ -238,7 +282,7 @@ function UA:BuildCasesTab()
         draw.SimpleText("+ NEW CASE","BCORE.Unboxs.13",w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
     end)
     newBtn:FadeHover(Color(255,255,255,22),6,8)
-    newBtn:On("DoClick", function() adm.selCase="__new__"; self:BuildCaseEditor() end)
+    newBtn:On("DoClick", function() adm.selCase="__new__"; adm.editWork=nil; self:BuildCaseEditor() end)
 
     local cscroll = BUi.Create("BUi.Scroll",sb); cscroll:Dock(FILL)
     for cname,cdef in SortedPairsByMemberValue(adm.cases,"Name") do
@@ -255,7 +299,7 @@ function UA:BuildCasesTab()
             local cnt=type(cdef.itemKeys)=="table" and #cdef.itemKeys or 0
             draw.SimpleText(cnt.." items","BCORE.Unboxs.11",14,h/2+7,ColorAlpha(C.cwhite,140),TEXT_ALIGN_LEFT,TEXT_ALIGN_CENTER)
         end)
-        row:On("DoClick", function() adm.selCase=n; self:BuildCaseEditor() end)
+        row:On("DoClick", function() adm.selCase=n; adm.editWork=nil; self:BuildCaseEditor() end)
     end
 
     self.editorHolder = BUi.Create("DPanel",self.body)
@@ -278,10 +322,28 @@ function UA:BuildCaseEditor()
     local isNew = adm.selCase=="__new__"
     local cname = not isNew and adm.selCase or nil
     local cdef  = (cname and adm.cases[cname]) or {}
-    local work  = {key=cname or "",Name=cdef.Name or "",Rarity=cdef.Rarity or "Common",
-                   Price=cdef.Price or 50000, itemKeys={}, weights={}}
-    for _,k in ipairs(cdef.itemKeys or {}) do table.insert(work.itemKeys,k) end
-    for k,w in pairs(cdef.weights  or {}) do work.weights[k] = tonumber(w) or 10 end
+
+    -- The in-progress edit used to be a bare local `work` table, rebuilt from scratch off cdef
+    -- (the last SERVER-known state of this case) every single time this function ran - and every
+    -- "live" button (CLEAR/ALL/remove-item, and the item picker below) mutated it and then
+    -- immediately called self:BuildCaseEditor() to refresh the layout, which silently threw that
+    -- very mutation away again. Real, reported bug: picking items in the "Select Item" popup
+    -- never showed up in the case behind it (and CLEAR/ALL/remove-item had the exact same latent
+    -- issue, just not yet reported). Fixed by caching `work` on `adm` itself, keyed to whichever
+    -- case is currently selected, so it survives a rebuild - only reset when the selected case
+    -- actually changes (new/switch/delete, above) or there's no cached edit for it yet.
+    local editKey = cname or "__new__"
+    local work
+    if adm.editWork and adm.editWorkFor == editKey then
+        work = adm.editWork
+    else
+        work = {key=cname or "",Name=cdef.Name or "",Rarity=cdef.Rarity or "Common",
+                Price=cdef.Price or 50000, Model=cdef.Model or "models/props_c17/oildrum001.mdl",
+                itemKeys={}, weights={}}
+        for _,k in ipairs(cdef.itemKeys or {}) do table.insert(work.itemKeys,k) end
+        for k,w in pairs(cdef.weights  or {}) do work.weights[k] = tonumber(w) or 10 end
+        adm.editWork, adm.editWorkFor = work, editKey
+    end
 
     local EP = self.editorHolder
 
@@ -298,13 +360,16 @@ function UA:BuildCaseEditor()
     local keyEntry   = makeField(leftCol,"INTERNAL KEY",work.key,   "e.g.  starter_case")
     local nameEntry  = makeField(leftCol,"DISPLAY NAME",work.Name,  "Shown to players")
     local priceEntry = makeField(leftCol,"PRICE",        work.Price, "DarkRP $",true)
+    local modelEntry = makeField(leftCol,"MODEL PATH",   work.Model, "models/...mdl")
     local rarDrop    = makeDropdown(leftCol,"RARITY",RARITIES,work.Rarity)
 
     local btnRow = BUi.Create("DPanel",leftCol)
     btnRow:Dock(TOP); btnRow:DockMargin(0,12,0,0); btnRow:SetTall(BUi:Scale(36)); btnRow:SetPaintBackground(false)
     makeActionBtn(btnRow,"SAVE",C.tert,function()
+        local model = modelEntry:GetValue():Trim()
         local p={oldKey=cname,key=keyEntry:GetValue():Trim(),Name=nameEntry:GetValue():Trim(),
                  Rarity=rarDrop:GetValue(),Price=tonumber(priceEntry:GetValue()) or 50000,
+                 Model=model~="" and model or "models/props_c17/oildrum001.mdl",
                  itemKeys=work.itemKeys, weights=work.weights}
         if p.key=="" then BCORE.Unbox:Toast("Error","Key cannot be empty",Color(220,60,60)); return end
         thread.Start("BCORE:UnboxAdmin.SaveCase",p)
@@ -313,13 +378,24 @@ function UA:BuildCaseEditor()
         makeActionBtn(btnRow,"🗑 DELETE",Color(220,60,60),function()
             local popup=BUi.Create("BUi.Popup"); popup:SetName("Delete Case?")
             popup:SetMode("textentry",{placeholder="Type DELETE to confirm",callback=function(txt)
-                if txt=="DELETE" then thread.Start("BCORE:UnboxAdmin.DeleteCase",{key=cname}); adm.selCase=nil end
+                if txt=="DELETE" then thread.Start("BCORE:UnboxAdmin.DeleteCase",{key=cname}); adm.selCase=nil; adm.editWork=nil end
             end})
         end)
     end
 
     local rightCol = BUi.Create("DPanel",EP)
     rightCol:Dock(FILL); rightCol:DockMargin(0,8,0,0); rightCol:SetPaintBackground(false)
+
+    -- Forward-declared: CLEAR/ALL/remove-item/pick-item below all need to call this, but it can
+    -- only be DEFINED once iScroll exists further down (which must itself be created AFTER ihdr/
+    -- addRow, since they're all Dock(TOP)/FILL siblings and iScroll's FILL dock needs those TOP
+    -- docks already accounted for - see RefreshItemsList's own definition for why). Lua resolves
+    -- a name as an upvalue based on where the ENCLOSING local is declared in the SOURCE, not when
+    -- it's actually assigned/called - closing over "RefreshItemsList" before this local exists
+    -- would silently resolve to a nonexistent GLOBAL instead, a guaranteed crash the instant any
+    -- of those buttons were clicked. Declaring the local here, assigning the real function later,
+    -- is the standard safe pattern for that.
+    local RefreshItemsList
 
     local ihdr = BUi.Create("DPanel",rightCol)
     ihdr:Dock(TOP); ihdr:SetTall(BUi:Scale(24)); ihdr:SetPaintBackground(false)
@@ -343,7 +419,7 @@ function UA:BuildCaseEditor()
         draw.RoundedBox(5,1,1,w-2,h-2,Color(180,50,50))
         draw.SimpleText("CLEAR","BCORE.Unboxs.11",w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
     end)
-    clearBtn:On("DoClick", function() work.itemKeys={}; self:BuildCaseEditor() end)
+    clearBtn:On("DoClick", function() work.itemKeys={}; RefreshItemsList() end)
 
     local addAllBtn = BUi.Create("DButton",addRow)
     addAllBtn:Dock(RIGHT); addAllBtn:DockMargin(0,0,4,0); addAllBtn:SetWide(BUi:Scale(62)); addAllBtn:SetText("")
@@ -355,7 +431,7 @@ function UA:BuildCaseEditor()
         for _,si in ipairs(sortedItems) do
             if not table.HasValue(work.itemKeys,si.key) then table.insert(work.itemKeys,si.key) end
         end
-        self:BuildCaseEditor()
+        RefreshItemsList()
     end)
 
     local pickBtn = BUi.Create("DButton",addRow)
@@ -419,6 +495,17 @@ function UA:BuildCaseEditor()
                         end
                         table.insert(work.itemKeys,si.key)
                         rebuild(string.lower(search:GetValue() or ""))
+                        -- Real, reported bug: picking an item here updated only this popup's own
+                        -- list (the checkmark), never the "ITEMS IN CASE" count/list on the case
+                        -- editor sitting behind it - so it looked like nothing happened until the
+                        -- popup was closed and reopened. RefreshItemsList() only touches the item
+                        -- rows (not keyEntry/nameEntry/etc, and not this still-open popup itself),
+                        -- so a second pick in the same popup session stays safe - the first version
+                        -- of this fix called the FULL self:BuildCaseEditor() here instead, which
+                        -- destroyed keyEntry/etc. out from under this popup's own closures; picking
+                        -- a second item then crashed with "Tried to use a NULL Panel!" the moment
+                        -- syncWorkFields tried to read the now-removed keyEntry.
+                        RefreshItemsList()
                     end)
                 end
             end
@@ -435,81 +522,96 @@ function UA:BuildCaseEditor()
     end
 
     local iScroll = BUi.Create("BUi.Scroll",rightCol); iScroll:Dock(FILL)
-    for _,ikey in ipairs(work.itemKeys) do
-        local idata=adm.items[ikey] or {}
-        local rar2=idata.rarity and (idata.rarity:sub(1,1):upper()..idata.rarity:sub(2)) or "Common"
-        local rc2=rclr(rar2)
-        local k=ikey
-        if not work.weights[k] then work.weights[k]=10 end
 
-        local row=BUi.Create("DPanel",iScroll)
-        row:Dock(TOP); row:DockMargin(0,2,0,0); row:SetTall(BUi:Scale(42)); row:SetPaintBackground(false)
+    -- Rebuilds just the item rows below, without touching keyEntry/nameEntry/priceEntry/
+    -- modelEntry/rarDrop or the "Select Item" popup (if open) at all - unlike calling the full
+    -- self:BuildCaseEditor(), which used to run here. Real, reproduced crash from doing that: the
+    -- popup survives a full rebuild (it's its own top-level panel, not a child of this editor),
+    -- but its row DoClick handlers stay closed over THAT rebuild's own keyEntry/etc. - picking a
+    -- SECOND item in the still-open popup then called into an already-destroyed keyEntry via the
+    -- old closure ("Tried to use a NULL Panel!" from GetValue). Scoping the refresh to just this
+    -- list (iScroll itself is never destroyed by CLEAR/ALL/remove/pick, only its own children)
+    -- sidesteps the whole stale-closure problem instead of working around it.
+    RefreshItemsList = function()
+        iScroll:Clear()
+        for _,ikey in ipairs(work.itemKeys) do
+            local idata=adm.items[ikey] or {}
+            local rar2=idata.rarity and (idata.rarity:sub(1,1):upper()..idata.rarity:sub(2)) or "Common"
+            local rc2=rclr(rar2)
+            local k=ikey
+            if not work.weights[k] then work.weights[k]=10 end
 
-        row:ClearPaint():On("Paint", function(_,w,h)
-            draw.RoundedBox(7,0,0,w,h,ColorAlpha(rc2,18))
-            draw.RoundedBox(7,1,1,w-2,h-2,C.accent)
-            draw.RoundedBox(3,0,h*.2,3,h*.6,rc2)
-            draw.SimpleText(idata.name or k,"BCORE.Unboxs.13",12,h/2-6,color_white,TEXT_ALIGN_LEFT,TEXT_ALIGN_CENTER)
-            draw.SimpleText("["..k.."]","BCORE.Unboxs.10",12,h/2+5,ColorAlpha(C.cwhite,100),TEXT_ALIGN_LEFT,TEXT_ALIGN_CENTER)
+            local row=BUi.Create("DPanel",iScroll)
+            row:Dock(TOP); row:DockMargin(0,2,0,0); row:SetTall(BUi:Scale(42)); row:SetPaintBackground(false)
 
-            -- live percentage bar
-            local pct  = (tonumber(work.weights[k]) or 10) / getTotalW() * 100
-            local barX = BUi:Scale(130)
-            local barW = w - barX - BUi:Scale(126)
-            draw.RoundedBox(3, barX, h/2-4, barW, 8, ColorAlpha(C.bg,200))
-            draw.RoundedBox(3, barX, h/2-4, math.max(4, barW*pct/100), 8, ColorAlpha(rc2,180))
-            draw.SimpleText(string.format("%.1f%%",pct),"BCORE.Unboxs.12",
-                barX + barW + BUi:Scale(4), h/2, ColorAlpha(color_white,200),
-                TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-        end)
+            row:ClearPaint():On("Paint", function(_,w,h)
+                draw.RoundedBox(7,0,0,w,h,ColorAlpha(rc2,18))
+                draw.RoundedBox(7,1,1,w-2,h-2,C.accent)
+                draw.RoundedBox(3,0,h*.2,3,h*.6,rc2)
+                draw.SimpleText(idata.name or k,"BCORE.Unboxs.13",12,h/2-6,color_white,TEXT_ALIGN_LEFT,TEXT_ALIGN_CENTER)
+                draw.SimpleText("["..k.."]","BCORE.Unboxs.10",12,h/2+5,ColorAlpha(C.cwhite,100),TEXT_ALIGN_LEFT,TEXT_ALIGN_CENTER)
 
-        -- ✕ remove button (far right)
-        local rem=BUi.Create("DButton",row)
-        rem:Stick(RIGHT,0,6,4,6,0); rem:SetWide(BUi:Scale(24)); rem:SetText("")
-        rem:ClearPaint():On("Paint",function(_,w2,h2)
-            draw.RoundedBox(5,1,1,w2-2,h2-2,Color(160,40,40))
-            draw.SimpleText("✕","BCORE.Unboxs.11",w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-        end)
-        local ki=k; rem:On("DoClick",function()
-            table.RemoveByValue(work.itemKeys,ki); work.weights[ki]=nil; self:BuildCaseEditor()
-        end)
+                -- live percentage bar
+                local pct  = (tonumber(work.weights[k]) or 10) / getTotalW() * 100
+                local barX = BUi:Scale(130)
+                local barW = w - barX - BUi:Scale(126)
+                draw.RoundedBox(3, barX, h/2-4, barW, 8, ColorAlpha(C.bg,200))
+                draw.RoundedBox(3, barX, h/2-4, math.max(4, barW*pct/100), 8, ColorAlpha(rc2,180))
+                draw.SimpleText(string.format("%.1f%%",pct),"BCORE.Unboxs.12",
+                    barX + barW + BUi:Scale(4), h/2, ColorAlpha(color_white,200),
+                    TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+            end)
 
-        -- + button
-        local addBtn=BUi.Create("DButton",row)
-        addBtn:Stick(RIGHT,0,6,2,6,0); addBtn:SetWide(BUi:Scale(24)); addBtn:SetText("")
-        addBtn:ClearPaint():On("Paint",function(s,w2,h2)
-            draw.RoundedBox(5,1,1,w2-2,h2-2, s:IsHovered() and Color(60,160,80) or Color(45,120,60))
-            draw.SimpleText("+","BCORE.Unboxb.14",w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-        end)
-        addBtn:On("DoClick",function() work.weights[k]=math.min(999,(work.weights[k] or 10)+5) end)
+            -- Standard door-icon button (same one every exit/remove button in this codebase uses),
+            -- not a bare "✕" glyph.
+            local rem=BUi.Create("DButton",row)
+            rem:Stick(RIGHT,0,6,4,6,0); rem:SetWide(BUi:Scale(24)); rem:SetText("")
+            rem:BUi():ClearPaint():Background(Color(56,56,64,200),5):On("Paint",function(_,w2,h2)
+                draw.RoundedBox(5,1,1,w2-2,h2-2,C.accent)
+                BUi.DrawImgur(0,0,w2,h2,BCORE.Unbox.Icons.exit,color_white)
+            end):FadeHover(Color(100,0,0,90),6,8)
+            local ki=k; rem:On("DoClick",function()
+                table.RemoveByValue(work.itemKeys,ki); work.weights[ki]=nil; RefreshItemsList()
+            end)
 
-        -- weight display (click to reset to 10)
-        local wDisp=BUi.Create("DButton",row)
-        wDisp:Stick(RIGHT,0,6,2,6,0); wDisp:SetWide(BUi:Scale(38)); wDisp:SetText("")
-        wDisp:SetCursor("hand")
-        wDisp:ClearPaint():On("Paint",function(s,w2,h2)
-            draw.RoundedBox(5,1,1,w2-2,h2-2, s:IsHovered() and C.light or C.bg)
-            draw.SimpleText(tostring(work.weights[k] or 10),"BCORE.Unboxb.13",
-                w2/2,h2/2,rc2,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-        end)
-        wDisp:On("DoClick",function() work.weights[k]=10 end)  -- reset to default on click
+            -- + button
+            local addBtn=BUi.Create("DButton",row)
+            addBtn:Stick(RIGHT,0,6,2,6,0); addBtn:SetWide(BUi:Scale(24)); addBtn:SetText("")
+            addBtn:ClearPaint():On("Paint",function(s,w2,h2)
+                draw.RoundedBox(5,1,1,w2-2,h2-2, s:IsHovered() and Color(60,160,80) or Color(45,120,60))
+                draw.SimpleText("+","BCORE.Unboxb.14",w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+            end)
+            addBtn:On("DoClick",function() work.weights[k]=math.min(999,(work.weights[k] or 10)+5) end)
 
-        -- - button
-        local subBtn=BUi.Create("DButton",row)
-        subBtn:Stick(RIGHT,0,6,2,6,0); subBtn:SetWide(BUi:Scale(24)); subBtn:SetText("")
-        subBtn:ClearPaint():On("Paint",function(s,w2,h2)
-            draw.RoundedBox(5,1,1,w2-2,h2-2, s:IsHovered() and Color(180,60,60) or Color(130,40,40))
-            draw.SimpleText("-","BCORE.Unboxb.14",w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-        end)
-        subBtn:On("DoClick",function() work.weights[k]=math.max(1,(work.weights[k] or 10)-5) end)
+            -- weight display (click to reset to 10)
+            local wDisp=BUi.Create("DButton",row)
+            wDisp:Stick(RIGHT,0,6,2,6,0); wDisp:SetWide(BUi:Scale(38)); wDisp:SetText("")
+            wDisp:SetCursor("hand")
+            wDisp:ClearPaint():On("Paint",function(s,w2,h2)
+                draw.RoundedBox(5,1,1,w2-2,h2-2, s:IsHovered() and C.light or C.bg)
+                draw.SimpleText(tostring(work.weights[k] or 10),"BCORE.Unboxb.13",
+                    w2/2,h2/2,rc2,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+            end)
+            wDisp:On("DoClick",function() work.weights[k]=10 end)  -- reset to default on click
+
+            -- - button
+            local subBtn=BUi.Create("DButton",row)
+            subBtn:Stick(RIGHT,0,6,2,6,0); subBtn:SetWide(BUi:Scale(24)); subBtn:SetText("")
+            subBtn:ClearPaint():On("Paint",function(s,w2,h2)
+                draw.RoundedBox(5,1,1,w2-2,h2-2, s:IsHovered() and Color(180,60,60) or Color(130,40,40))
+                draw.SimpleText("-","BCORE.Unboxb.14",w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+            end)
+            subBtn:On("DoClick",function() work.weights[k]=math.max(1,(work.weights[k] or 10)-5) end)
+        end
+        if #work.itemKeys==0 then
+            local e=BUi.Create("DPanel",iScroll); e:Dock(TOP); e:SetTall(BUi:Scale(44)); e:SetPaintBackground(false)
+            e:On("Paint", function(_,w,h)
+                draw.SimpleText("No items yet — click ADD ITEM ▾ above",
+                    "BCORE.Unboxs.13",w/2,h/2,ColorAlpha(C.cwhite,100),TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+            end)
+        end
     end
-    if #work.itemKeys==0 then
-        local e=BUi.Create("DPanel",iScroll); e:Dock(TOP); e:SetTall(BUi:Scale(44)); e:SetPaintBackground(false)
-        e:On("Paint", function(_,w,h)
-            draw.SimpleText("No items yet — click ADD ITEM ▾ above",
-                "BCORE.Unboxs.13",w/2,h/2,ColorAlpha(C.cwhite,100),TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-        end)
-    end
+    RefreshItemsList()
 end
 
 function UA:BuildItemsTab()
@@ -611,6 +713,12 @@ function UA:BuildItemEditor()
     -- NOTE: do NOT set idef.cansell here — it overwrites the value the server sent back.
     -- The dropdown reads idef.soldInStore directly below.
 
+    -- Forward-declared: the SAVE button (built in leftCol, below) reads codeEntry:GetValue(),
+    -- but the code editor field itself is only created later while building rightCol - this
+    -- local has to already exist by then so that closure captures the real upvalue instead of
+    -- resolving to a nil global.
+    local codeEntry
+
     local hdr=BUi.Create("DPanel",EP); hdr:Dock(TOP); hdr:SetTall(BUi:Scale(28)); hdr:SetPaintBackground(false)
     hdr:On("Paint", function(_,w,h)
         draw.SimpleText(isNew and "CREATE NEW ITEM" or "EDITING:  "..(idef.name or iname or ""),
@@ -624,7 +732,13 @@ function UA:BuildItemEditor()
     local keyEntry   = makeField(leftCol,"INTERNAL KEY",  iname or "",        "e.g.  weapon_ak47")
     local nameEntry  = makeField(leftCol,"DISPLAY NAME",  idef.name or "",    "Shown in UI")
     local classEntry = makeField(leftCol,"SWEP CLASS",    idef.class or "",   "weapon_ak47")
-    local typeEntry  = makeField(leftCol,"CATEGORY/TYPE", idef.type or "Weapon","Weapon / Consumable")
+    -- BCORE.Unbox.ItemTypes (beep_unboxing's own "Item Types" config entry, mainconfig/sh_config.lua)
+    -- is what lets an admin add a new type from the in-game config panel instead of needing a
+    -- code edit - a plain free-text field here had no relationship to that list at all, so a
+    -- typo (or just not knowing the exact existing spelling) silently created a new, disconnected
+    -- type nothing else recognized.
+    local itemTypeOptions = BCORE.Unbox.ItemTypes or { "Weapon", "Consumable" }
+    local typeDrop   = makeDropdown(leftCol,"CATEGORY/TYPE", itemTypeOptions, idef.type or itemTypeOptions[1] or "Weapon")
     local priceEntry = makeField(leftCol,"BASE PRICE",    idef.basePrice or 100,"",true)
 
     -- FIX: read soldInStore from the server data to set the correct default.
@@ -644,11 +758,12 @@ function UA:BuildItemEditor()
             key         = keyEntry:GetValue():Trim(),
             name        = nameEntry:GetValue():Trim(),
             class       = classEntry:GetValue():Trim(),
-            type        = typeEntry:GetValue():Trim(),
+            type        = typeDrop:GetValue(),
             rarity      = string.lower(rarDrop:GetValue() or "common"),
             basePrice   = tonumber(priceEntry:GetValue()) or 100,
             -- FIX: actually include the cansell value in the payload
             soldInStore = cansell:GetValue() == "Yes",
+            onUseCode   = codeEntry:GetValue(),
         }
         if p.key=="" then BCORE.Unbox:Toast("Error","Key cannot be empty",Color(220,60,60)); return end
         thread.Start("BCORE:UnboxAdmin.SaveItem",p)
@@ -673,7 +788,7 @@ function UA:BuildItemEditor()
     preview:On("Paint", function(s,w,h)
         local rar2=rarDrop:GetValue() or "Common"; local rc2=rclr(rar2)
         local pName=nameEntry:GetValue(); local pClass=classEntry:GetValue()
-        local pPrice=tonumber(priceEntry:GetValue()) or 0; local pType=typeEntry:GetValue()
+        local pPrice=tonumber(priceEntry:GetValue()) or 0; local pType=typeDrop:GetValue()
         local pSell=cansell:GetValue()=="Yes"
         draw.RoundedBox(10,0,0,w,h,ColorAlpha(rc2,40)); draw.RoundedBox(10,2,2,w-4,h-4,C.sec)
         draw.RoundedBox(10,2,2,w-4,5,rc2); draw.RoundedBox(0,2,5,w-4,4,rc2)
@@ -695,6 +810,92 @@ function UA:BuildItemEditor()
         draw.SimpleText(pSell and "IN STORE" or "NOT FOR SALE","BCORE.Unboxs.10",
             w-BUi:Scale(8)-BUi:Scale(36),by2+BUi:Scale(9),color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
     end)
+
+    -- Fills the rest of rightCol below the preview - see u:RunOnUseCode (sv_economy.lua) for
+    -- exactly how this gets executed (ply/item are provided as locals automatically) and
+    -- u:UseItem for the full priority order: this item-specific override beats its TYPE's own
+    -- script (edited in the TYPES tab below), which itself beats the compiled-in default.
+    codeEntry = makeCodeField(rightCol, "ON USE CODE (LUA) - overrides this item's type script", idef.onUseCode)
+end
+
+-- One shared script per CATEGORY/TYPE (BCORE.Unbox.ItemTypes, sh_config.lua) - the main way an
+-- admin is meant to configure "what does this do on use" without touching a single line of
+-- addon code, since most items of the same type want the same behavior (see u:UseItem's
+-- priority order in sv_economy.lua: item override > type script > compiled-in default).
+function UA:BuildTypesTab()
+    local sb = makeSidebar(self.body,"TYPES")
+
+    local hint=BUi.Create("DPanel",sb); hint:Dock(TOP); hint:DockMargin(8,4,8,4); hint:SetTall(BUi:Scale(36))
+    hint:SetPaintBackground(false)
+    hint:On("Paint", function(_,w,h)
+        draw.SimpleText("One script per type, shared by","BCORE.Unboxs.11",w/2,h/2-8,ColorAlpha(C.cwhite,140),TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+        draw.SimpleText("every item of that type.","BCORE.Unboxs.11",w/2,h/2+8,ColorAlpha(C.cwhite,140),TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+    end)
+
+    local tscroll=BUi.Create("BUi.Scroll",sb); tscroll:Dock(FILL)
+    local types = BCORE.Unbox.ItemTypes or {"Weapon","Consumable"}
+    for _,typeName in ipairs(types) do
+        local hasCode = adm.typeCode[typeName] and adm.typeCode[typeName] ~= ""
+        local row=BUi.Create("DButton",tscroll); row:Dock(TOP); row:DockMargin(8,3,8,0); row:SetTall(BUi:Scale(36))
+        row:SetText(""); row:SetupTransition("hov",9,BUi.HoverFunc)
+        row:ClearPaint():On("Paint", function(s,w,h)
+            local on=adm.selType==typeName
+            draw.RoundedBox(7,0,0,w,h,on and ColorAlpha(C.tert,35) or (s.hov>0.01 and ColorAlpha(C.tert,16) or C.accent))
+            if on then draw.RoundedBox(3,0,h*.15,3,h*.7,C.tert) end
+            draw.SimpleText(typeName,"BCORE.Unboxs.13",12,h/2,color_white,TEXT_ALIGN_LEFT,TEXT_ALIGN_CENTER)
+            if hasCode then
+                draw.RoundedBox(4,w-62,h/2-8,54,16,ColorAlpha(Color(60,160,80),210))
+                draw.SimpleText("SCRIPTED","BCORE.Unboxs.9",w-35,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+            end
+        end)
+        row:On("DoClick", function() adm.selType=typeName; self:BuildTypeEditor() end)
+    end
+
+    self.typeEditorHolder=BUi.Create("DPanel",self.body)
+    self.typeEditorHolder:Stick(FILL); self.typeEditorHolder:DockMargin(8,0,0,0)
+    self.typeEditorHolder:ClearPaint():Background(C.light,10):On("Paint", function(_,w,h)
+        draw.RoundedBox(10,1,1,w-2,h-2,C.sec)
+        if not adm.selType then
+            draw.SimpleText("← Select a type to edit its on-use script","BCORE.Unboxs.18",
+                w/2,h/2,ColorAlpha(C.cwhite,100),TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+        end
+    end)
+    self.typeEditorHolder:DockPadding(14,14,14,14)
+    if adm.selType then self:BuildTypeEditor() end
+end
+
+function UA:BuildTypeEditor()
+    if not IsValid(self.typeEditorHolder) then return end
+    self.typeEditorHolder:Clear(); self.typeEditorHolder:DockPadding(14,14,14,14)
+
+    local typeName = adm.selType
+    local EP = self.typeEditorHolder
+
+    local hdr=BUi.Create("DPanel",EP); hdr:Dock(TOP); hdr:SetTall(BUi:Scale(28)); hdr:SetPaintBackground(false)
+    hdr:On("Paint", function(_,w,h)
+        draw.SimpleText("EDITING TYPE:  "..typeName,"BCORE.Unboxb.18",0,h/2,color_white,TEXT_ALIGN_LEFT,TEXT_ALIGN_CENTER)
+    end)
+
+    -- Forward-declared: the SAVE/CLEAR buttons below read codeEntry:GetValue(), but the field
+    -- itself is created LAST (see the Dock(FILL)-must-come-after-Dock(BOTTOM) note on btnRow).
+    local codeEntry
+
+    local btnRow=BUi.Create("DPanel",EP)
+    btnRow:Dock(BOTTOM); btnRow:DockMargin(0,10,0,0); btnRow:SetTall(BUi:Scale(36)); btnRow:SetPaintBackground(false)
+    makeActionBtn(btnRow,"SAVE",C.tert,function()
+        thread.Start("BCORE:UnboxAdmin.SaveTypeCode",{type=typeName, code=codeEntry:GetValue()})
+        BCORE.Unbox:Toast("Saved","'"..typeName.."' on-use script updated",C.tert)
+    end)
+    makeActionBtn(btnRow,"CLEAR",Color(140,60,60),function()
+        codeEntry:SetValue("")
+        thread.Start("BCORE:UnboxAdmin.SaveTypeCode",{type=typeName, code=""})
+        BCORE.Unbox:Toast("Cleared","'"..typeName.."' now uses its default behavior",Color(140,60,60))
+    end)
+
+    -- Docked FILL, so it must be created after btnRow (Dock(BOTTOM)) above - GMod lays out
+    -- docked children in the order they were docked, and a FILL panel docked first would claim
+    -- the entire remaining rect before btnRow ever got a chance to reserve its own space.
+    codeEntry = makeCodeField(EP, "ON USE CODE (LUA) - applies to every '"..typeName.."' item with no item-specific override", adm.typeCode[typeName])
 end
 
 function UA:BuildLogsTab()
@@ -829,10 +1030,10 @@ function UA:BuildPlayersTab()
         -- delete one button (top-right)
         local del=BUi.Create("DButton",tile); del:SetPos(IW-22,2); del:SetSize(20,20); del:SetText("")
         del:SetMouseInputEnabled(true)
-        del:ClearPaint():On("Paint",function(_,w2,h2)
-            draw.RoundedBox(4,1,1,w2-2,h2-2,Color(180,40,40))
-            draw.SimpleText("✕","BCORE.Unboxs.10",w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-        end)
+        del:BUi():ClearPaint():Background(Color(56,56,64,200),4):On("Paint",function(_,w2,h2)
+            draw.RoundedBox(4,1,1,w2-2,h2-2,C.accent)
+            BUi.DrawImgur(0,0,w2,h2,BCORE.Unbox.Icons.exit,color_white)
+        end):FadeHover(Color(100,0,0,90),5,6)
         local ik=ikey
         del:On("DoClick",function()
             thread.Start("BCORE:UnboxAdmin.RemovePlayerItem",{userID=sp.userID,itemKey=ik,amount=1})
@@ -863,10 +1064,10 @@ function UA:BuildPlayersTab()
         end
         local del=BUi.Create("DButton",tile); del:SetPos(IW-22,2); del:SetSize(20,20); del:SetText("")
         del:SetMouseInputEnabled(true)
-        del:ClearPaint():On("Paint",function(_,w2,h2)
-            draw.RoundedBox(4,1,1,w2-2,h2-2,Color(180,40,40))
-            draw.SimpleText("✕","BCORE.Unboxs.10",w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-        end)
+        del:BUi():ClearPaint():Background(Color(56,56,64,200),4):On("Paint",function(_,w2,h2)
+            draw.RoundedBox(4,1,1,w2-2,h2-2,C.accent)
+            BUi.DrawImgur(0,0,w2,h2,BCORE.Unbox.Icons.exit,color_white)
+        end):FadeHover(Color(100,0,0,90),5,6)
         local ck=ckey
         del:On("DoClick",function()
             thread.Start("BCORE:UnboxAdmin.RemovePlayerCase",{userID=sp.userID,caseKey=ck,amount=1})

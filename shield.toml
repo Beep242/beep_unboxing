@@ -1,0 +1,33 @@
+project = "./src"
+output = "./dist"
+threads = 16
+mode = "fixed"
+
+[plugins]
+rename_variables = true
+rename_functions = true
+rename_classes = true
+rename_enums = true
+rename_traits = true
+rename_namespaces = true
+remove_comments = true
+compress_whitespace = false
+minify = false
+sort_imports = true
+python_heuristic_rename = false
+obfuscate_strings = true
+flatten_control_flow = true
+opaque_predicates = true
+dead_code_injection = true
+bytecode_vm = true
+mba_obfuscation = false
+eliminate_dead_code = false
+anti_debug = false
+bytecode_loader = true
+bytecode_loader_luajit = false
+integrity_check = false
+
+[license]
+license_key = "7B247B-DB1A29-C1DC39-C84AB0-19BE4D-V3"
+keygen_user_id = "invisibalfan@gmail.com"
+watermark = true

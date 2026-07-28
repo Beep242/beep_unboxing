@@ -17,6 +17,11 @@ cfg.Colors = {
     playtime = Color(0,247,255), -- was Color(0,247,589) - 589 is out of the 0-255 range
 }
 
+-- Set unconditionally (same reasoning as beeps-printers' Colors default) so the admin item
+-- editor's CATEGORY/TYPE dropdown always has real choices, whether or not BCORE.Config is
+-- actually present below to override it with an admin-edited list.
+BCORE.Unbox.ItemTypes = BCORE.Unbox.ItemTypes or { "Weapon", "Consumable" }
+
 -- Register with BCORE.Config (beep-framework), if present, so all of the above (plus the
 -- rarity weights / rarity price multipliers / bulk-discount tiers that used to be hardcoded
 -- directly in sv_economy.lua, never even in a config file at all) becomes in-game
@@ -92,6 +97,87 @@ if BCORE and BCORE.RegisterConfig then
         },
     })
 
+    BCORE:RegisterConfig("beep_unboxing", "ItemTypes", {
+        label = "Item Types",
+        category = "Economy",
+        description = "The CATEGORY/TYPE choices offered when creating or editing an item in the Unbox admin panel. Add a new entry here to make it selectable there - no code edit needed.",
+        type = "list",
+        default = { "Weapon", "Consumable" },
+    })
+
+    BCORE:RegisterConfig("beep_unboxing", "AnnounceRarity", {
+        label = "Announce Unboxes At Rarity",
+        category = "Economy",
+        description = "Broadcasts a server-wide chat message, colored to match the item's rarity, whenever anyone unboxes an item of this rarity or rarer. Off disables announcements entirely.",
+        type = "choice",
+        choices = { "Off", "common", "uncommon", "rare", "epic", "legendary" },
+        default = "legendary",
+    })
+
+    BCORE:RegisterConfig("beep_unboxing", "TradeInEnabled", {
+        label = "Enable Trade-In", category = "Trade-In",
+        description = "Turns the whole Trade-In tab (scrap for cash, trade up) on or off. Off blocks both actions server-side and hides the tab.",
+        type = "bool", default = true,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "ScrapPercent", {
+        label = "Scrap Payout %", category = "Trade-In",
+        description = "What percentage of an item's Base Price it pays out when scrapped for cash.",
+        type = "number", min = 0, max = 100, decimals = 0, default = 40,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "TradeUpItemsRequired", {
+        label = "Trade-Up Items Required", category = "Trade-In",
+        description = "How many items of the SAME rarity a trade-up consumes to produce one item of the next rarity up.",
+        type = "number", min = 2, decimals = 0, default = 5,
+    })
+
+    BCORE:RegisterConfig("beep_unboxing", "GamblingEnabled", {
+        label = "Enable Gambling", category = "Gambling",
+        description = "Turns the whole Gambling tab on or off. Off blocks every gambling action server-side and hides the tab.",
+        type = "bool", default = true,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "GamblingHouseEdgePercent", {
+        label = "House Edge %", category = "Gambling",
+        description = "Percentage taken off every gambling payout across all five games.",
+        type = "number", min = 0, max = 100, decimals = 0, default = 5,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "GamblingMinBet", {
+        label = "Minimum Bet", category = "Gambling",
+        type = "number", min = 0, decimals = 0, default = 100,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "GamblingMaxBet", {
+        label = "Maximum Bet", category = "Gambling",
+        type = "number", min = 0, decimals = 0, default = 1000000,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "EnableCoinflip", {
+        label = "Enable Coinflip", category = "Gambling", type = "bool", default = true,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "EnableDice", {
+        label = "Enable Dice/Roulette", category = "Gambling", type = "bool", default = true,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "EnableJackpot", {
+        label = "Enable Jackpot", category = "Gambling", type = "bool", default = true,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "EnableCaseBattles", {
+        label = "Enable Case Battles", category = "Gambling", type = "bool", default = true,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "EnableCrash", {
+        label = "Enable Crash", category = "Gambling", type = "bool", default = true,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "EnableMines", {
+        label = "Enable Mines", category = "Gambling", type = "bool", default = true,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "EnableSlots", {
+        label = "Enable Slots", category = "Gambling", type = "bool", default = true,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "JackpotRoundSeconds", {
+        label = "Jackpot Round Length (seconds)", category = "Gambling",
+        type = "number", min = 5, decimals = 0, default = 45,
+    })
+    BCORE:RegisterConfig("beep_unboxing", "CrashBettingSeconds", {
+        label = "Crash Betting Window (seconds)", category = "Gambling",
+        type = "number", min = 3, decimals = 0, default = 12,
+    })
+
     local function RecordsToMap(records, keyField, valueField)
         local out = {}
         for _, rec in ipairs(records or {}) do
@@ -111,9 +197,44 @@ if BCORE and BCORE.RegisterConfig then
         BCORE.Unbox.RarityWeights = RecordsToMap(BCORE:GetConfig("beep_unboxing", "RarityWeights"), "rarity", "weight")
         BCORE.Unbox.RarityPricing = RecordsToMap(BCORE:GetConfig("beep_unboxing", "RarityPriceMultipliers"), "rarity", "multiplier")
 
+        -- The canonical rarity PROGRESSION (common -> uncommon -> ... -> legendary), derived
+        -- from RarityWeights' own registered record order rather than a second hardcoded list -
+        -- Trade-Up (sv_tradein.lua) needs this to resolve "the next rarity up" from whatever a
+        -- player turns in.
+        local order = {}
+        for _, rec in ipairs(BCORE:GetConfig("beep_unboxing", "RarityWeights") or {}) do
+            if rec.rarity and rec.rarity ~= "" then order[#order + 1] = string.lower(rec.rarity) end
+        end
+        if #order > 0 then BCORE.Unbox.RarityOrder = order end
+
+        local itemTypes = BCORE:GetConfig("beep_unboxing", "ItemTypes")
+        if itemTypes and #itemTypes > 0 then
+            BCORE.Unbox.ItemTypes = itemTypes
+        end
+
         local bulk = BCORE:GetConfig("beep_unboxing", "BulkDiscounts") or {}
         table.sort(bulk, function(a, b) return (a.minAmount or 0) > (b.minAmount or 0) end)
         BCORE.Unbox.BulkDiscounts = bulk
+
+        BCORE.Unbox.AnnounceRarity = BCORE:GetConfig("beep_unboxing", "AnnounceRarity")
+
+        BCORE.Unbox.TradeInEnabled = BCORE:GetConfig("beep_unboxing", "TradeInEnabled")
+        BCORE.Unbox.ScrapPercent = BCORE:GetConfig("beep_unboxing", "ScrapPercent")
+        BCORE.Unbox.TradeUpItemsRequired = BCORE:GetConfig("beep_unboxing", "TradeUpItemsRequired")
+
+        BCORE.Unbox.GamblingEnabled = BCORE:GetConfig("beep_unboxing", "GamblingEnabled")
+        BCORE.Unbox.GamblingHouseEdgePercent = BCORE:GetConfig("beep_unboxing", "GamblingHouseEdgePercent")
+        BCORE.Unbox.GamblingMinBet = BCORE:GetConfig("beep_unboxing", "GamblingMinBet")
+        BCORE.Unbox.GamblingMaxBet = BCORE:GetConfig("beep_unboxing", "GamblingMaxBet")
+        BCORE.Unbox.EnableCoinflip = BCORE:GetConfig("beep_unboxing", "EnableCoinflip")
+        BCORE.Unbox.EnableDice = BCORE:GetConfig("beep_unboxing", "EnableDice")
+        BCORE.Unbox.EnableJackpot = BCORE:GetConfig("beep_unboxing", "EnableJackpot")
+        BCORE.Unbox.EnableCaseBattles = BCORE:GetConfig("beep_unboxing", "EnableCaseBattles")
+        BCORE.Unbox.EnableCrash = BCORE:GetConfig("beep_unboxing", "EnableCrash")
+        BCORE.Unbox.EnableMines = BCORE:GetConfig("beep_unboxing", "EnableMines")
+        BCORE.Unbox.EnableSlots = BCORE:GetConfig("beep_unboxing", "EnableSlots")
+        BCORE.Unbox.JackpotRoundSeconds = BCORE:GetConfig("beep_unboxing", "JackpotRoundSeconds")
+        BCORE.Unbox.CrashBettingSeconds = BCORE:GetConfig("beep_unboxing", "CrashBettingSeconds")
     end
 
     SyncUnboxConfigMirror()

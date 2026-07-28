@@ -1,18 +1,12 @@
 local colors = BCORE.Unbox.config.sh.Colors
 local IC      = BCORE.Unbox.Icons
 
-local function rc(r)
-    local t={common=Color(190,190,190),uncommon=Color(0,200,80),rare=Color(30,120,255),
-             epic=Color(175,30,255),legendary=Color(255,195,0)}
-    return t[string.lower(r or "common")] or Color(190,190,190)
-end
-local function fmt(n)
-    if not n then return "$0" end
-    n=math.floor(tonumber(n) or 0)
-    local s,res,c=tostring(n),"",0
-    for i=#s,1,-1 do c=c+1;res=s:sub(i,i)..res; if c%3==0 and i>1 then res=","..res end end
-    return "$"..res
-end
+-- Was its own hardcoded rarity-color table + hand-rolled comma inserter, near-identically
+-- duplicated across this file/cl_shop.lua/cl_inventory.lua/cl_unbox.lua - both now delegate to
+-- the shared, config-driven versions in ui/cl_theme.lua. Kept as local functions (not a
+-- find-and-replace of every call site) so nothing else in this file needs to change.
+local function rc(r) return BCORE.Unbox:RarityColor(r) end
+local function fmt(n) return BCORE.Unbox:FormatMoney(n) end
 
 --------------------------------------------------------------------------------
 function BCORE.Unbox:Dash()
@@ -27,6 +21,13 @@ function BCORE.Unbox:Dash()
     local hero = BUi.Create("DPanel", dash)
     hero:Stick(LEFT, 0, 8, 8, 0, 8)
     hero:SetWide(FW * .52)
+
+    -- forward-declared so the Paint closure below (which runs every frame, long after this
+    -- function has returned) can keep the hero model in sync with whichever case is
+    -- currently featured, instead of freezing on whatever was first (or not yet) loaded.
+    local hmdl
+    local heroModel = "models/props_c17/oildrum001.mdl"
+
     hero:ClearPaint():Background(colors.light, 12):On("Paint", function(s,w,h)
         local rot=(CurTime()*22)%360
         BUi.masks.Start()
@@ -62,10 +63,23 @@ function BCORE.Unbox:Dash()
         draw.SimpleText("FEATURED","BCORE.Unboxs.12",16+BUi:Scale(40),14+BUi:Scale(10),
             color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
 
-        -- case name from live data
+        -- Case name from live data - was an arbitrary pairs()-order pick (whichever case
+        -- happened to iterate first, not actually "featured" by any real criteria). Picks the
+        -- highest-priced case instead - deterministic, and a reasonable stand-in for "featured"
+        -- until/unless a real admin-chosen Featured flag is worth adding.
         local data=LocalPlayer().BCORE_UNBOX_DATA or {}
         local cname,cdef="MYSTERY CASE",{}
-        for k,v in pairs(data.caseDefs or {}) do cname=v.Name or k; cdef=v; break end
+        for k,v in pairs(data.caseDefs or {}) do
+            if (v.Price or 0) > (cdef.Price or -1) then cname=v.Name or k; cdef=v end
+        end
+
+        -- Keep the hero model in sync with whichever case is featured - re-set only when it
+        -- actually changes (SetModel rebuilds the preview entity, not something to do every frame).
+        local wantModel = cdef.Model or "models/props_c17/oildrum001.mdl"
+        if IsValid(hmdl) and heroModel ~= wantModel then
+            heroModel = wantModel
+            hmdl:SetModel(wantModel)
+        end
 
         draw.SimpleText(string.upper(cname),"BCORE.Unboxb.32",w/2,h-78,
             color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
@@ -76,7 +90,7 @@ function BCORE.Unbox:Dash()
     end)
 
     -- hero model
-    local hmdl=BUi.Create("DModelPanel",hero)
+    hmdl=BUi.Create("DModelPanel",hero)
     hmdl:Dock(FILL); hmdl:DockMargin(24,60,24,130)
     hmdl:SetModel("models/props_c17/oildrum001.mdl")
     hmdl:SetCamPos(Vector(80,50,30)); hmdl:SetLookAt(Vector(0,0,15))
@@ -217,7 +231,7 @@ function BCORE.Unbox:RefreshDash()
         -- model
         local mdl=BUi.Create("DModelPanel",card)
         mdl:SetPos(BUi:Scale(10),BUi:Scale(20)); mdl:SetSize(CW-BUi:Scale(20),BUi:Scale(94))
-        mdl:SetModel("models/props_c17/oildrum001.mdl")
+        mdl:SetModel(cdef.Model or "models/props_c17/oildrum001.mdl")
         mdl:SetCamPos(Vector(60,40,25)); mdl:SetLookAt(Vector(0,0,10))
         mdl.LayoutEntity=function(_,ent) ent:SetAngles(Angle(0,CurTime()*22,0)) end
 

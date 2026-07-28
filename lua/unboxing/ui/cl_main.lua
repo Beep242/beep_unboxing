@@ -24,18 +24,36 @@ BCORE.Unbox.Icons = {
     coin      = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
     bag       = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
     star      = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
+    tradein   = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
+    gambling  = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
 }
 local IC = BCORE.Unbox.Icons
 
 --------------------------------------------------------------------------------
 -- DATA SYNC
+--
+-- The ONE place this net message is handled - netstream.Hook keeps a single slot
+-- per message name (netstream.stored[name] = Callback), so registering it more than
+-- once anywhere else doesn't add a second listener, it silently REPLACES whichever
+-- one loaded first. cl_shop.lua and cl_networking.lua both used to register their own
+-- copy of this same hook; whichever one happened to load last was winning and the
+-- other(s)' logic never ran at all - in practice this meant the shop's own cache-key
+-- reset below was getting silently dropped, so a player who opened the store before
+-- the server's data had arrived would see the "Waiting for server data…" placeholder
+-- forever, since nothing ever told RefreshShop() to actually rebuild once real data
+-- showed up. Refreshing unconditionally (not gated on which specific tab is visible
+-- right now) means every page is already correct the instant the player switches to
+-- it, rather than depending on the data happening to arrive while that exact tab is
+-- on screen.
 --------------------------------------------------------------------------------
 thread.Hook("BCORE:UnboxSendData", function(data)
     LocalPlayer().BCORE_UNBOX_DATA = data or {}
+    BCORE.Unbox._shopCacheKey = nil
     if not IsValid(BCORE.Unbox.frame) then return end
     BCORE.Unbox:RefreshShop()
     BCORE.Unbox:RefreshInventory()
     BCORE.Unbox:RefreshDash()
+    if BCORE.Unbox.RefreshTradeIn then BCORE.Unbox:RefreshTradeIn() end
 end)
 
 --------------------------------------------------------------------------------
@@ -99,8 +117,27 @@ end
 --------------------------------------------------------------------------------
 -- OPEN / CLOSE
 --------------------------------------------------------------------------------
-function BCORE.Unbox:Open()
-    if IsValid(BCORE.Unbox.frame) then
+-- parent (optional): when nil, behaves exactly as before - a standalone, draggable, MakePopup'd
+-- floating frame the player can toggle open/closed (used by the concommand/chat-command entry
+-- points below). When given a real panel (beep-f4's own Unboxing tab, see beep-f4's
+-- cl_unbox_tab.lua), this whole UI is built AS A CHILD of it instead - Dock(FILL)'d into the
+-- tab's own page, no MakePopup (F4's own frame already owns input capture for its whole
+-- hierarchy), no drag/fade-in animation, and no own exit button (F4's sidebar/exit already
+-- covers "leave this screen"). Every existing internal size/position call below (topbar's own
+-- frame:GetTall()-relative sizing, Toast's frame:GetWide(), etc.) reads real numbers either way,
+-- since the embedded case still calls frame:SetSize(...) explicitly up front rather than relying
+-- on Dock(FILL)'s own layout timing.
+function BCORE.Unbox:Open(parent)
+    local wantEmbedded = parent ~= nil
+
+    -- REGRESSION FIX: BCORE.Unbox.frame is one shared reference for BOTH the standalone popup
+    -- and an F4-embedded instance. Once F4's own Unbox tab had been opened at least once (see
+    -- cl_unbox_tab.lua), this reference pointed at the EMBEDDED frame - so typing !unbox
+    -- afterward hit this toggle-close branch against THAT frame instead of opening a real
+    -- standalone popup, silently animating the F4 tab's own content closed instead. The toggle-
+    -- close gesture only makes sense against an existing STANDALONE frame; an embedded one should
+    -- just be left alone while a real standalone popup gets built fresh below.
+    if not wantEmbedded and IsValid(BCORE.Unbox.frame) and not BCORE.Unbox.frameIsEmbedded then
         local f = BCORE.Unbox.frame
         local px, py = f:GetPos()
         f:MoveTo(px, py + BUi:Scale(22), 0.18, 0, 1)
@@ -108,25 +145,43 @@ function BCORE.Unbox:Open()
         return
     end
 
+    -- Only remove the previous frame when replacing one of the SAME kind - an F4-embedded
+    -- instance and a standalone popup are different UI contexts and are allowed to coexist
+    -- (e.g. F4's Unbox tab was opened earlier, then !unbox is typed later - the embedded one is
+    -- simply left running, orphaned from this reference but still fully valid inside F4).
+    if IsValid(BCORE.Unbox.frame) and BCORE.Unbox.frameIsEmbedded == wantEmbedded then
+        BCORE.Unbox.frame:Remove()
+    end
+
     BCORE.Unbox.Tabs   = {}
     BCORE.Unbox.Toasts = {}
 
     -- FRAME ---------------------------------------------------------------
-    local frame = BUi.Create("EditablePanel")
+    local frame = BUi.Create("EditablePanel", parent)
     BCORE.Unbox.frame = frame
-    frame:SetSize(BUi:Scale(1420), BUi:Scale(850))
-    frame:Center()
-    frame:MakePopup()
+    BCORE.Unbox.frameIsEmbedded = wantEmbedded
+
+    if parent then
+        frame:SetSize(parent:GetWide(), parent:GetTall())
+        frame:Dock(FILL)
+    else
+        frame:SetSize(BUi:Scale(1420), BUi:Scale(850))
+        frame:Center()
+        frame:MakePopup()
+    end
+
     frame:ClearPaint():Shadow(255):Background(colors.light, 16)
     frame:On("Paint", function(s, w, h)
         draw.RoundedBox(16, 1, 1, w-2, h-2, colors.bg)
     end)
 
-    local ox, oy = frame:GetPos()
-    frame:SetAlpha(0)
-    frame:SetPos(ox, oy + BUi:Scale(30))
-    frame:AlphaTo(255, 0.22, 0)
-    frame:MoveTo(ox, oy, 0.22, 0, -1)
+    if not parent then
+        local ox, oy = frame:GetPos()
+        frame:SetAlpha(0)
+        frame:SetPos(ox, oy + BUi:Scale(30))
+        frame:AlphaTo(255, 0.22, 0)
+        frame:MoveTo(ox, oy, 0.22, 0, -1)
+    end
 
     -- TOPBAR --------------------------------------------------------------
     local topbar = BUi.Create("DPanel", frame)
@@ -137,24 +192,30 @@ function BCORE.Unbox:Open()
         draw.RoundedBox(14, 1, 1, w-2, h-2, colors.sec)
     end)
 
-    -- EXIT ----------------------------------------------------------------
-    local exit = BUi.Create("DButton", topbar)
-    topbar.exit = exit
-    exit:Stick(RIGHT, 10)
-    exit:SetWide(BUi:Scale(50))
-    exit:SetText("")
-    exit:ClearPaint():Background(Color(56,56,56,200), 5):FadeIn(0.5)
-    exit:On("Paint", function(s, w, h)
-        draw.RoundedBox(5, 1, 1, w-2, h-2, colors.accent)
-        BUi.DrawImgur(0, 0, w, h, IC.exit, color_white)
-    end)
-    exit:FadeHover(Color(130, 0, 0, 110), 6, 8)
-    exit:On("DoClick", function() BCORE.Unbox:Open() end)
+    -- EXIT (standalone popup only - embedded in F4, the sidebar tabs/exit already do this) -----
+    if not parent then
+        local exit = BUi.Create("DButton", topbar)
+        topbar.exit = exit
+        exit:Stick(RIGHT, 10)
+        exit:SetWide(BUi:Scale(50))
+        exit:SetText("")
+        exit:ClearPaint():Background(Color(56,56,56,200), 5):FadeIn(0.5)
+        exit:On("Paint", function(s, w, h)
+            draw.RoundedBox(5, 1, 1, w-2, h-2, colors.accent)
+            BUi.DrawImgur(0, 0, w, h, IC.exit, color_white)
+        end)
+        exit:FadeHover(Color(130, 0, 0, 110), 6, 8)
+        exit:On("DoClick", function() BCORE.Unbox:Open() end)
+    end
 
     -- LOGO ----------------------------------------------------------------
+    -- Shrunk from 148 - with Trade-In and Gambling added to the tab bar (now 6 tabs, each
+    -- frame:GetWide()*.092 wide - see CreateButton, cl_tabs.lua), the topbar's fixed-width
+    -- elements (this logo + search + balance + admin button) no longer left enough room for the
+    -- last tab (Gambling) to fit without getting clipped/pushed past the topbar's own edge.
     local logo = BUi.Create("DPanel", topbar)
     logo:Stick(LEFT, 0, 10, 8, 0, 8)
-    logo:SetWide(BUi:Scale(148))
+    logo:SetWide(BUi:Scale(86))
     logo:ClearPaint():On("Paint", function(s, w, h)
         local rot = (CurTime() * 26) % 360
         BUi.masks.Start()
@@ -166,9 +227,9 @@ function BCORE.Unbox:Open()
         BUi.masks.End()
         draw.RoundedBox(10, 0, 0, w, h, ColorAlpha(colors.tert, 22))
         draw.RoundedBox(10, 1, 1, w-2, h-2, colors.sec)
-        draw.SimpleText("UNBOX",  "BCORE.Unboxb.22", w/2, h/2 - 9,
+        draw.SimpleText("UNBOX",  "BCORE.Unboxb.15", w/2, h/2 - 7,
             colors.tert,   TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        draw.SimpleText("SYSTEM", "BCORE.Unboxs.12", w/2, h/2 + 9,
+        draw.SimpleText("SYSTEM", "BCORE.Unboxs.9", w/2, h/2 + 7,
             colors.cwhite, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
     end)
 
@@ -253,10 +314,22 @@ function BCORE.Unbox:Open()
     BCORE.Unbox:Dash()
     BCORE.Unbox:Shop()
     BCORE.Unbox:Inventory()
-    BCORE.Unbox:Settings()
+    BCORE.Unbox:TradeIn()
+    BCORE.Unbox:Gambling()
     BCORE.Unbox:SelectPage("Home")
 
     thread.Start("BCORE:UnboxRequestSync", {})
 end
 
 concommand.Add("open_unboxing_menu", function() BCORE.Unbox:Open() end)
+
+-- Same pattern as beep-framework's !config chat command - open to everyone (unlike !config,
+-- this menu has no admin gate at all), suppressed from actually appearing in chat.
+hook.Add("OnPlayerChat", "BCORE.Unbox.ChatCommand", function(ply, text)
+    if ply ~= LocalPlayer() then return end
+    if string.Trim(string.lower(text)) ~= "!unbox" then return end
+
+    BCORE.Unbox:Open()
+
+    return true
+end)

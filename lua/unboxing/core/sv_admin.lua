@@ -18,11 +18,14 @@ local function cleanItems()
                 rarity      = tostring(v.rarity or "common"),
                 basePrice   = tonumber(v.basePrice or 100),
                 soldInStore = v.soldInStore,  -- nil=shown, false=hidden, true=shown
-        model       = v.model,
+                -- Was set twice - a leftover `model = v.model,` immediately overwritten by this
+                -- same fallback version (harmless, Lua constructors just keep the last value,
+                -- but dead duplicate cruft worth removing).
                 model       = v.model or (function()
                     local sw = weapons.GetStored(v.class or k)
                     return sw and (sw.WorldModel or sw.ViewModel) or nil
                 end)(),
+                onUseCode   = v.onUseCode,
             }
         else
             u.Items[k] = nil
@@ -71,6 +74,7 @@ local function sanitizeItem(v)
         basePrice   = v.basePrice,
         soldInStore = v.soldInStore,  -- nil=shown, false=hidden, true=shown
         model       = v.model,
+        onUseCode   = v.onUseCode,
     }
 end
 
@@ -104,6 +108,7 @@ local function sanitizeCases(cases)
             Name     = v.Name,
             Rarity   = v.Rarity,
             Price    = v.Price,
+            Model    = v.Model,
             itemKeys = keys,
             weights  = v.weights or {},
         }
@@ -115,6 +120,7 @@ end
 local DATA_DIR   = "bcore_unbox"
 local CASES_FILE = DATA_DIR .. "/cases.json"
 local ITEMS_FILE = DATA_DIR .. "/items.json"
+local TYPES_FILE = DATA_DIR .. "/types.json"
 
 local function ensureDir()
     if not file.IsDir(DATA_DIR, "DATA") then
@@ -132,8 +138,19 @@ function UA:SaveItemsToDisk()
     file.Write(ITEMS_FILE, util.TableToJSON(sanitizeItems(u.Items), true))
 end
 
+function UA:SaveTypeCodeToDisk()
+    ensureDir()
+    file.Write(TYPES_FILE, util.TableToJSON(u.TypeCode or {}, true))
+end
+
 function UA:LoadFromDisk()
     ensureDir()
+
+    if file.Exists(TYPES_FILE, "DATA") then
+        local raw = util.JSONToTable(file.Read(TYPES_FILE, "DATA") or "{}") or {}
+        u.TypeCode = raw
+        print("[UnboxAdmin] Loaded " .. table.Count(raw) .. " type scripts from disk.")
+    end
 
     if file.Exists(ITEMS_FILE, "DATA") then
         local raw = util.JSONToTable(file.Read(ITEMS_FILE, "DATA") or "{}") or {}
@@ -210,9 +227,10 @@ end)
 
 function UA:BuildAdminData()
     return {
-        cases = sanitizeCases(u.Cases),
-        items = sanitizeItems(u.Items),
-        logs  = self.Logs
+        cases    = sanitizeCases(u.Cases),
+        items    = sanitizeItems(u.Items),
+        logs     = self.Logs,
+        typeCode = u.TypeCode or {},
     }
 end
 
@@ -250,13 +268,25 @@ thread.Hook("BCORE:UnboxAdmin.SaveCase", function(ply, data)
     end
 
     local caseItems    = {}
+    local caseItemKeys = {}
     local caseWeights  = {}
     local inWeights    = data.weights or {}
 
+    -- Real, reported bug: this loop only ever built caseItems/caseWeights (both maps, keyed by
+    -- item key) - nothing here ever kept the flat, ORDERED list the client actually sent
+    -- (data.itemKeys) at all, and u:CreateCase (sv_economy.lua) is a dumb setter that stores
+    -- exactly whatever table it's handed, no derivation. So u.Cases[key].itemKeys was NEVER set
+    -- by a save through this admin panel - only .CaseItems/.weights/.items/._byRarity were.
+    -- u:BuildCasePool (actual case-opening odds) reads CaseItems/weights directly, so real
+    -- gameplay was unaffected - but every DISPLAY path that reads case.itemKeys instead
+    -- (sanitizeCaseDefs in sv_networking.lua, feeding the shop's own "View Contents" popup) saw
+    -- an empty list every time, regardless of how many items were actually saved. Now built
+    -- alongside caseItems/caseWeights in the same loop, so it's real going forward.
     for _, ik in ipairs(data.itemKeys or {}) do
         if u.Items[ik] then
             caseItems[ik]   = u.Items[ik]
             caseWeights[ik] = tonumber(inWeights[ik]) or 10
+            table.insert(caseItemKeys, ik)
         end
     end
 
@@ -271,7 +301,9 @@ thread.Hook("BCORE:UnboxAdmin.SaveCase", function(ply, data)
         Name      = data.Name or data.key,
         Rarity    = data.Rarity or "Common",
         Price     = data.Price or 50000,
+        Model     = (data.Model and data.Model ~= "") and data.Model or "models/props_c17/oildrum001.mdl",
         CaseItems = caseItems,
+        itemKeys  = caseItemKeys,
         weights   = caseWeights,
         items     = itemsByRarity,
         _byRarity = itemsByRarity,
@@ -334,6 +366,11 @@ thread.Hook("BCORE:UnboxAdmin.SaveItem", function(ply, data)
         rarity      = data.rarity    or "common",
         basePrice   = data.basePrice or 100,
         soldInStore = data.soldInStore or false,    -- FIX: persist the value the client sent
+        -- Custom "on use" Lua, written in the admin item editor (u:RunItemOnUseCode,
+        -- sv_economy.lua). nil rather than "" when blank so u:UseItem's own
+        -- `item.onUseCode and item.onUseCode ~= ""` check treats an empty editor the same as
+        -- "no custom code" without needing a second check anywhere else.
+        onUseCode   = (data.onUseCode and data.onUseCode ~= "") and data.onUseCode or nil,
     })
 
     UA:Log(ply, "SaveItem", data.key)
@@ -341,6 +378,31 @@ thread.Hook("BCORE:UnboxAdmin.SaveItem", function(ply, data)
     UA:SaveCasesToDisk()
     syncAll()
     respond(ply, true, "Item saved.")
+end)
+
+-- Saves a whole item TYPE's custom "on use" script (u.TypeCode, sv_economy.lua) - this is the
+-- main way an admin is meant to configure item behavior: one script per CATEGORY/TYPE (Weapon/
+-- Consumable/any custom type added via the "Item Types" config list), applied to every item of
+-- that type at once, rather than needing to write the same logic separately on every item.
+thread.Hook("BCORE:UnboxAdmin.SaveTypeCode", function(ply, data)
+    if not UA:IsAdmin(ply) then return end
+
+    if not data or not data.type or data.type == "" then
+        respond(ply, false, "Type name required")
+        return
+    end
+
+    u.TypeCode = u.TypeCode or {}
+    if data.code and data.code ~= "" then
+        u.TypeCode[data.type] = data.code
+    else
+        u.TypeCode[data.type] = nil
+    end
+
+    UA:Log(ply, "SaveTypeCode", data.type)
+    UA:SaveTypeCodeToDisk()
+    syncAll()
+    respond(ply, true, "Type script saved.")
 end)
 
 thread.Hook("BCORE:UnboxAdmin.DeleteItem", function(ply, data)

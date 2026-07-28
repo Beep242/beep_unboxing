@@ -2,36 +2,66 @@ local colors = BCORE.Unbox.config.sh.Colors
 local thread  = BCORE.netstream
 local IC      = BCORE.Unbox.Icons
 
-local RCLR = {
-    common    = Color(190,190,190),
-    uncommon  = Color(0,  200, 80),
-    rare      = Color(30, 120,255),
-    epic      = Color(175, 30,255),
-    legendary = Color(255,195,  0),
-}
 local RORDER = {"legendary","epic","rare","uncommon","common"}
-local function rc(r) return RCLR[string.lower(r or "common")] or Color(190,190,190) end
-local function fmt(n)
-    if not n then return "$0" end
-    n=math.floor(tonumber(n) or 0)
-    local s,res,c=tostring(n),"",0
-    for i=#s,1,-1 do c=c+1;res=s:sub(i,i)..res; if c%3==0 and i>1 then res=","..res end end
-    return "$"..res
+-- Both delegate to the shared, config-driven versions in ui/cl_theme.lua now (was its own
+-- hardcoded rarity-color table + hand-rolled comma inserter, duplicated across this
+-- file/cl_dash.lua/cl_shop.lua/cl_unbox.lua).
+local function rc(r) return BCORE.Unbox:RarityColor(r) end
+local function fmt(n) return BCORE.Unbox:FormatMoney(n) end
+-- How many of a given case to open at once - persisted per case name across RefreshInventory
+-- rebuilds (which happen on almost every inventory change) purely so the choice doesn't reset
+-- itself every time the grid redraws. Same click-to-cycle pattern as cl_shop.lua's own qty
+-- button.
+local caseOpenQty = {}
+local CASE_QTY_OPTIONS = {1, 2, 3, 5, 10}
+
+--------------------------------------------------------------------------------
+-- OPEN RESULT HOOK - always a `results` array now (even for a single case), so opening
+-- several at once plays each one's own full reel animation in sequence rather than only ever
+-- showing the last result.
+--------------------------------------------------------------------------------
+thread.Hook("BCORE:UnboxOpenResult", function(data)
+    if not data or not istable(data.results) or #data.results == 0 then return end
+    BCORE.Unbox:QueueOpenAnimations(data.results, data.caseName)
+end)
+
+function BCORE.Unbox:QueueOpenAnimations(results, caseName)
+    self._openQueue      = results
+    self._openQueueIndex = 0
+    self._openCaseName   = caseName
+    self:PlayNextOpenAnimation()
+end
+
+function BCORE.Unbox:PlayNextOpenAnimation()
+    self._openQueueIndex = (self._openQueueIndex or 0) + 1
+    local entry = self._openQueue and self._openQueue[self._openQueueIndex]
+    if not entry then return end
+
+    local remaining = #self._openQueue - self._openQueueIndex
+    self:ShowOpenAnimation(entry.item, entry.rarity, self._openCaseName, remaining)
 end
 
 --------------------------------------------------------------------------------
--- OPEN RESULT HOOK
+-- RARITY ANNOUNCEMENT - server-broadcast (sv_economy.lua's AnnounceUnbox), only ever sent for
+-- an item at/above the configured threshold rarity. The color lookup stays purely client-side
+-- (this same RCLR table every other unbox screen already uses) so nothing needs to network a
+-- real Color object.
 --------------------------------------------------------------------------------
-thread.Hook("BCORE:UnboxOpenResult", function(data)
-    if data and data.item then
-        BCORE.Unbox:ShowOpenAnimation(data.item, data.rarity, data.caseName)
-    end
+thread.Hook("BCORE:UnboxAnnounce", function(data)
+    if not data then return end
+    local rclr = rc(data.rarity)
+    chat.AddText(
+        Color(255, 255, 255), tostring(data.plyName or "Someone"),
+        Color(200, 200, 200), " unboxed ",
+        rclr, tostring(data.itemName or "an item"),
+        Color(200, 200, 200), " (" .. string.upper(tostring(data.rarity or "common")) .. ")!"
+    )
 end)
 
 --------------------------------------------------------------------------------
 -- CASE OPEN ANIMATION
 --------------------------------------------------------------------------------
-function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName)
+function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName, remainingCount)
     local winClr   = rc(wonRarity)
     local syncData = LocalPlayer().BCORE_UNBOX_DATA or {}
     local allItems = syncData.items or {}
@@ -68,8 +98,12 @@ function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName)
     titleP:On("Paint", function(_,w,h)
         draw.SimpleText("OPENING CASE","BCORE.Unboxb.30",w/2,h/2-9,
             color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-        if caseName then
-            draw.SimpleText('"'..caseName..'"',"BCORE.Unboxs.16",w/2,h/2+14,
+        local sub = caseName and ('"'..caseName..'"') or ""
+        if (remainingCount or 0) > 0 then
+            sub = sub .. (sub ~= "" and "  -  " or "") .. (remainingCount + 1) .. " more to open"
+        end
+        if sub ~= "" then
+            draw.SimpleText(sub,"BCORE.Unboxs.16",w/2,h/2+14,
                 ColorAlpha(colors.cwhite,175),TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
         end
     end)
@@ -150,7 +184,9 @@ function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName)
         draw.SimpleText(iname,"BCORE.Unboxb.28",w/2,h/2+14,winClr,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
     end)
 
-    -- close button
+    -- close button - "NEXT CASE" (advances the queue, same overlay gets rebuilt fresh for the
+    -- next result) when more are queued, otherwise the original collect-and-close behavior.
+    local hasMore = (remainingCount or 0) > 0
     local closeBtn = BUi.Create("DButton",ov)
     closeBtn:SetSize(BUi:Scale(192),BUi:Scale(44))
     closeBtn:SetPos(ScrW()/2-BUi:Scale(96), cY+RH+BUi:Scale(96))
@@ -158,16 +194,44 @@ function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName)
     closeBtn:ClearPaint():Background(colors.light,8):On("Paint", function(s,w,h)
         draw.RoundedBox(8,0,0,w,h,ColorAlpha(winClr,55))
         draw.RoundedBox(8,1,1,w-2,h-2,colors.sec)
-        draw.SimpleText("COLLECT & CLOSE","BCORE.Unboxb.16",w/2,h/2,
+        draw.SimpleText(hasMore and "NEXT CASE" or "COLLECT & CLOSE","BCORE.Unboxb.16",w/2,h/2,
             color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
     end)
     closeBtn:FadeHover(Color(255,255,255,22),8,10)
     closeBtn:On("DoClick", function()
-        ov:AlphaTo(0,0.2,0,function() if IsValid(ov) then ov:Remove() end end)
+        ov:AlphaTo(0,0.2,0,function()
+            if IsValid(ov) then ov:Remove() end
+            if hasMore then BCORE.Unbox:PlayNextOpenAnimation() end
+        end)
         if IsValid(BCORE.Unbox.frame) then
             BCORE.Unbox:RefreshInventory()
             local n = allItems[wonItem] and allItems[wonItem].name or wonItem
             BCORE.Unbox:Toast("Item added to inventory!", n, winClr)
+        end
+    end)
+
+    -- place in world - spawns a purely clientside decorative prop of the item (cl_placement.lua),
+    -- never touching the server. Closes this overlay the same way COLLECT & CLOSE/NEXT CASE
+    -- does, since placement mode takes over screen input right after.
+    local placeBtn = BUi.Create("DButton",ov)
+    placeBtn:SetSize(BUi:Scale(192),BUi:Scale(34))
+    placeBtn:SetPos(ScrW()/2-BUi:Scale(96), cY+RH+BUi:Scale(148))
+    placeBtn:SetText(""); placeBtn:SetAlpha(0)
+    placeBtn:ClearPaint():Background(colors.light,8):On("Paint", function(s,w,h)
+        draw.RoundedBox(8,0,0,w,h,ColorAlpha(Color(120,180,255),45))
+        draw.RoundedBox(8,1,1,w-2,h-2,colors.sec)
+        draw.SimpleText("PLACE IN WORLD","BCORE.Unboxb.13",w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+    end)
+    placeBtn:FadeHover(Color(255,255,255,18),8,10)
+    placeBtn:On("DoClick", function()
+        local itemDef = allItems[wonItem] or {}
+        ov:AlphaTo(0,0.2,0,function()
+            if IsValid(ov) then ov:Remove() end
+            BCORE.Unbox:StartPlacement(itemDef.model)
+            if hasMore then BCORE.Unbox:PlayNextOpenAnimation() end
+        end)
+        if IsValid(BCORE.Unbox.frame) then
+            BCORE.Unbox:RefreshInventory()
         end
     end)
 
@@ -203,6 +267,7 @@ function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName)
                 spawnSparks()
                 resP:AlphaTo(255,0.35,0.1)
                 closeBtn:AlphaTo(255,0.35,0.28)
+                placeBtn:AlphaTo(255,0.35,0.34)
                 -- flash winner card
                 for fl=1,5 do
                     timer.Simple(fl*0.11, function()
@@ -276,7 +341,12 @@ function BCORE.Unbox:Inventory()
     end)
 
     local casesScroll = BUi.Create("DHorizontalScroller",inv)
-    casesScroll:Stick(TOP,0,8,0,8,0); casesScroll:SetTall(BUi:Scale(162)); casesScroll:ClearPaint()
+    -- Was BUi:Scale(162) - RefreshInventory's own case cards are BUi:Scale(190) tall (sized for
+    -- a THIRD button row, PLACE IN WORLD, added under the existing qty/OPEN row - see that
+    -- function's own comment), but this container's height was never updated to match, so every
+    -- card - including its own PLACE IN WORLD button - got clipped off at the scroller's old,
+    -- shorter boundary. +10 on top of the card's own real height for a little breathing room.
+    casesScroll:Stick(TOP,0,8,0,8,0); casesScroll:SetTall(BUi:Scale(200)); casesScroll:ClearPaint()
     BCORE.Unbox.CasesScroller = casesScroll
 
     -- items section label
@@ -317,7 +387,9 @@ function BCORE.Unbox:RefreshInventory()
             local cdef = caseDefs[cname] or {}
             local CW2  = BUi:Scale(142)
             local card = BUi.Create("DPanel",BCORE.Unbox.CasesScroller)
-            card:SetSize(CW2,BUi:Scale(152)); card:DockMargin(6,5,0,5)
+            -- Tall enough for a third button row (PLACE IN WORLD, below) under the existing
+            -- qty/OPEN row.
+            card:SetSize(CW2,BUi:Scale(190)); card:DockMargin(6,5,0,5)
             BCORE.Unbox.CasesScroller:AddPanel(card)
 
             card:SetupTransition("hov",10,BUi.HoverFuncChild)
@@ -345,13 +417,34 @@ function BCORE.Unbox:RefreshInventory()
             -- model
             local mdl=BUi.Create("DModelPanel",card); mdl:SetPos(BUi:Scale(10),BUi:Scale(16))
             mdl:SetSize(CW2-BUi:Scale(20),BUi:Scale(74))
-            mdl:SetModel("models/props_c17/oildrum001.mdl")
+            mdl:SetModel(cdef.Model or "models/props_c17/oildrum001.mdl")
             mdl:SetCamPos(Vector(50,30,20)); mdl:SetLookAt(Vector(0,0,5))
             mdl.LayoutEntity=function(_,ent) ent:SetAngles(Angle(0,CurTime()*25,0)) end
 
+            -- qty button - cycles 1/2/3/5/10, capped to however many of this case are
+            -- actually owned so the button never suggests opening more than exist.
+            caseOpenQty[cname] = math.min(caseOpenQty[cname] or 1, cnt)
+            local qb=BUi.Create("DButton",card)
+            qb:SetPos(BUi:Scale(8),BUi:Scale(113)); qb:SetSize(BUi:Scale(34),BUi:Scale(30))
+            qb:SetText(""); qb:SetupTransition("hov",9,BUi.HoverFunc)
+            qb:ClearPaint():Background(colors.light,6):On("Paint", function(s,w,h)
+                draw.RoundedBox(6,1,1,w-2,h-2,
+                    Color(colors.accent.r+s.hov*14,colors.accent.g+s.hov*14,colors.accent.b+s.hov*14))
+                draw.SimpleText("×"..(caseOpenQty[cname] or 1),"BCORE.Unboxs.13",w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+            end)
+            qb:On("DoClick", function()
+                local cur = caseOpenQty[cname] or 1
+                local idx = 1
+                for i,v in ipairs(CASE_QTY_OPTIONS) do if v==cur then idx=i break end end
+                repeat
+                    idx = (idx % #CASE_QTY_OPTIONS) + 1
+                until CASE_QTY_OPTIONS[idx] <= cnt or idx == 1
+                caseOpenQty[cname] = math.min(CASE_QTY_OPTIONS[idx], cnt)
+            end)
+
             -- open button
             local ob=BUi.Create("DButton",card)
-            ob:SetPos(BUi:Scale(8),BUi:Scale(113)); ob:SetSize(CW2-BUi:Scale(16),BUi:Scale(30))
+            ob:SetPos(BUi:Scale(46),BUi:Scale(113)); ob:SetSize(CW2-BUi:Scale(54),BUi:Scale(30))
             ob:SetText(""); ob:SetupTransition("hov",9,BUi.HoverFunc)
             ob:ClearPaint():Background(colors.light,6):On("Paint", function(s,w,h)
                 BUi.masks.Start()
@@ -365,8 +458,31 @@ function BCORE.Unbox:RefreshInventory()
                 draw.SimpleText("OPEN","BCORE.Unboxb.14",w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
             end)
             ob:On("DoClick", function()
-                thread.Start("BCORE:UnboxOpenCase",{caseName=cname})
-                BCORE.Unbox:Toast("Opening case…",cdef.Name or cname, tclr)
+                local amount = caseOpenQty[cname] or 1
+                thread.Start("BCORE:UnboxOpenCase",{caseName=cname, amount=amount})
+                BCORE.Unbox:Toast("Opening " .. amount .. "x…",cdef.Name or cname, tclr)
+            end)
+
+            -- place in world - a physical "set the case down and it opens" ritual
+            -- (cl_placement.lua): spawns a clientside ghost of the CASE itself, and confirming
+            -- placement fires the real open-case request instead of leaving a permanent
+            -- decoration. Only ever opens exactly ONE case at a time - the qty selector/OPEN
+            -- button above stay the way to open several at once, since there's no sensible
+            -- "place a stack of 5" ritual. Only cases are ever placeable this way - an
+            -- already-unboxed ITEM has no place-in-world option at all anymore.
+            local pb=BUi.Create("DButton",card)
+            pb:SetPos(BUi:Scale(8),BUi:Scale(149)); pb:SetSize(CW2-BUi:Scale(16),BUi:Scale(28))
+            pb:SetText(""); pb:SetupTransition("hov",9,BUi.HoverFunc)
+            pb:ClearPaint():Background(colors.light,6):On("Paint", function(s,w,h)
+                draw.RoundedBox(6,1,1,w-2,h-2,
+                    Color(colors.accent.r+s.hov*14,colors.accent.g+s.hov*14,colors.accent.b+s.hov*14))
+                draw.SimpleText("PLACE IN WORLD","BCORE.Unboxb.11",w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
+            end)
+            pb:On("DoClick", function()
+                BCORE.Unbox:StartPlacement(cdef.Model or "models/props_c17/oildrum001.mdl", function()
+                    thread.Start("BCORE:UnboxOpenCase", {caseName=cname, amount=1})
+                    BCORE.Unbox:Toast("Opening…", cdef.Name or cname, tclr)
+                end)
             end)
         end
         if not any then
@@ -465,7 +581,9 @@ function BCORE.Unbox:RefreshInventory()
         mdl:SetModel(mp); mdl:SetCamPos(Vector(50,30,20)); mdl:SetLookAt(Vector(0,0,5))
         mdl.LayoutEntity=function(_,ent) ent:SetAngles(Angle(0,CurTime()*28,0)) end
 
-        -- use button
+        -- use button - "place in world" was removed from item cards: placing was never meant
+        -- for already-unboxed items, only for CASES (see the case cards above) - placing a case
+        -- IS how you open it here, not a separate decoration feature.
         local ub=BUi.Create("DButton",card)
         ub:SetPos(BUi:Scale(8),BUi:Scale(170)); ub:SetSize(CW3-BUi:Scale(16),BUi:Scale(36))
         ub:SetText(""); ub:SetupTransition("hov",9,BUi.HoverFunc)
