@@ -11,7 +11,7 @@ for i = 1, 200 do
 end
 
 --------------------------------------------------------------------------------
--- ICON TABLE  â€” replace every PLACEHOLDER_* with your own Imgur URL
+-- ICON TABLE  — replace every PLACEHOLDER_* with your own Imgur URL
 --------------------------------------------------------------------------------
 BCORE.Unbox.Icons = {
     exit      = "https://beep242.github.io/bui_images/images/0cjxwbc.png",
@@ -39,7 +39,7 @@ local IC = BCORE.Unbox.Icons
 -- copy of this same hook; whichever one happened to load last was winning and the
 -- other(s)' logic never ran at all - in practice this meant the shop's own cache-key
 -- reset below was getting silently dropped, so a player who opened the store before
--- the server's data had arrived would see the "Waiting for server dataâ€¦" placeholder
+-- the server's data had arrived would see the "Waiting for server data…" placeholder
 -- forever, since nothing ever told RefreshShop() to actually rebuild once real data
 -- showed up. Refreshing unconditionally (not gated on which specific tab is visible
 -- right now) means every page is already correct the instant the player switches to
@@ -246,7 +246,7 @@ function BCORE.Unbox:Open(parent)
     BCORE.Unbox.search = BUi.Create("DTextEntry", sh)
     BCORE.Unbox.search:Stick(FILL)
     BCORE.Unbox.search:ReadyTextbox()
-    BCORE.Unbox.search:SetPlaceholderText("Search itemsâ€¦")
+    BCORE.Unbox.search:SetPlaceholderText("Search items…")
     BCORE.Unbox.search:SetFont("BCORE.Unboxs.16")
     BCORE.Unbox.search:SetTextColor(colors.cwhite)
     BCORE.Unbox.search:SetCursorColor(colors.tert)

@@ -38,8 +38,8 @@ local function getWeaponIcon(item)
     return nil
 end
 
--- soldInStore = nil/true â†’ shown by default
--- soldInStore = false    â†’ admin explicitly hid it
+-- soldInStore = nil/true → shown by default
+-- soldInStore = false    → admin explicitly hid it
 local function isForSale(item)
     return item.soldInStore ~= false
 end
@@ -195,7 +195,7 @@ function BCORE.Unbox:RefreshShop()
         local ph = grid:Add("DPanel"); ph:SetSize(BUi:Scale(400),BUi:Scale(60))
         ph:SetPaintBackground(false)
         ph.Paint = function(s,w,h)
-            draw.SimpleText("Waiting for server dataâ€¦","BCORE.Unboxs.15",
+            draw.SimpleText("Waiting for server data…","BCORE.Unboxs.15",
                 w/2,h/2,colors.cwhite,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
         end
         grid:SizeToChildren(false,true)
@@ -204,7 +204,7 @@ function BCORE.Unbox:RefreshShop()
 
     local CW,CH = BUi:Scale(200),BUi:Scale(232)
 
-    -- â”€â”€ CASES TAB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    -- ── CASES TAB ──────────────────────────────────────────────────────────
     if S.filter == "cases" then
         local caseDefs = data.caseDefs or {}
         local allItems = data.items    or {}
@@ -227,7 +227,7 @@ function BCORE.Unbox:RefreshShop()
             end)
 
             -- Standard door-icon exit button - the same one every other popup in this codebase
-            -- uses (F4, the main Unbox frame, the socket menu, ...), not a one-off red "âœ•".
+            -- uses (F4, the main Unbox frame, the socket menu, ...), not a one-off red "✕".
             local closeBtn = BUi.Create("DButton", frame)
             closeBtn:SetPos(frame:GetWide()-38, 6); closeBtn:SetSize(32,32); closeBtn:SetText("")
             closeBtn:SetMouseInputEnabled(true)
@@ -379,7 +379,7 @@ function BCORE.Unbox:RefreshShop()
                 draw.RoundedBox(6,0,0,w2,h2,color_white)
                 BUi.masks.End()
                 draw.RoundedBox(6,1,1,w2-2,h2-2,Color(40+s.hov*20,60+s.hov*20,100+s.hov*20))
-                draw.SimpleText("ðŸ‘  VIEW CONTENTS","BCORE.Unboxb.12",
+                draw.SimpleText("👁  VIEW CONTENTS","BCORE.Unboxb.12",
                     w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
             end)
             vb:BUi():On("DoClick",function() showCaseContents(ckey,case) end)
@@ -407,7 +407,7 @@ function BCORE.Unbox:RefreshShop()
             bb:BUi():On("DoClick",function()
                 local q=S.qty[ckey] or 1
                 thread.Start("BCORE:UnboxBuyCase",{caseKey=ckey,amount=q})
-                BCORE.Unbox:Toast("Purchased!",BUi.Truncate(cname,20).." Ã—"..q,colors.tert)
+                BCORE.Unbox:Toast("Purchased!",BUi.Truncate(cname,20).." ×"..q,colors.tert)
                 timer.Simple(0.7,function()
                     if IsValid(BCORE.Unbox.ShopGrid) then
                         BCORE.Unbox._shopCacheKey=nil; BCORE.Unbox:RefreshShop()
@@ -419,7 +419,7 @@ function BCORE.Unbox:RefreshShop()
         grid:SizeToChildren(false,true)
         return
     end
-    -- â”€â”€ END CASES TAB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    -- ── END CASES TAB ───────────────────────────────────────────────────────
 
     local rw={}
     for i,r in ipairs(RORDER) do rw[r]=#RORDER-i+1 end
@@ -561,7 +561,7 @@ function BCORE.Unbox:RefreshShop()
         qb:BUi():ClearPaint():Background(colors.light,6):On("Paint",function(s,w,h)
             draw.RoundedBox(6,1,1,w-2,h-2,
                 Color(colors.accent.r+s.hov*14,colors.accent.g+s.hov*14,colors.accent.b+s.hov*14))
-            draw.SimpleText("Ã—"..(S.qty[name] or 1),"BCORE.Unboxs.15",
+            draw.SimpleText("×"..(S.qty[name] or 1),"BCORE.Unboxs.15",
                 w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
         end)
         qb:MoveToFront()
@@ -597,7 +597,7 @@ function BCORE.Unbox:RefreshShop()
             local q=S.qty[name] or 1
             thread.Start("BCORE:UnboxPurchase",{itemName=name,amount=q})
             bb._rip=1
-            BCORE.Unbox:Toast("Purchase sent!",BUi.Truncate(dname,22).." Ã—"..q,colors.tert)
+            BCORE.Unbox:Toast("Purchase sent!",BUi.Truncate(dname,22).." ×"..q,colors.tert)
             timer.Simple(0.7,function()
                 if IsValid(BCORE.Unbox.ShopGrid) then
                     BCORE.Unbox._shopCacheKey=nil; BCORE.Unbox:RefreshShop()
