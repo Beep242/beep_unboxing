@@ -38,8 +38,8 @@ local function getWeaponIcon(item)
     return nil
 end
 
--- soldInStore = nil/true → shown by default
--- soldInStore = false    → admin explicitly hid it
+-- soldInStore = nil/true â†’ shown by default
+-- soldInStore = false    â†’ admin explicitly hid it
 local function isForSale(item)
     return item.soldInStore ~= false
 end
@@ -195,7 +195,7 @@ function BCORE.Unbox:RefreshShop()
         local ph = grid:Add("DPanel"); ph:SetSize(BUi:Scale(400),BUi:Scale(60))
         ph:SetPaintBackground(false)
         ph.Paint = function(s,w,h)
-            draw.SimpleText("Waiting for server data…","BCORE.Unboxs.15",
+            draw.SimpleText("Waiting for server dataâ€¦","BCORE.Unboxs.15",
                 w/2,h/2,colors.cwhite,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
         end
         grid:SizeToChildren(false,true)
@@ -204,7 +204,7 @@ function BCORE.Unbox:RefreshShop()
 
     local CW,CH = BUi:Scale(200),BUi:Scale(232)
 
-    -- ── CASES TAB ──────────────────────────────────────────────────────────
+    -- â”€â”€ CASES TAB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if S.filter == "cases" then
         local caseDefs = data.caseDefs or {}
         local allItems = data.items    or {}
@@ -219,7 +219,7 @@ function BCORE.Unbox:RefreshShop()
                 draw.RoundedBox(12,0,0,w,h,colors.sec)
                 draw.RoundedBox(12,1,1,w-2,h-2,colors.sec)
                 BUi.DrawImgur(1,1,w-2,h-2,
-                    "https://invisibalfan-ui.github.io/bui_images/images/srl54gk.png",
+                    "https://beep242.github.io/bui_images/images/srl54gk.png",
                     ColorAlpha(color_white,30),12)
                 draw.SimpleText(case.Name or ckey,"BCORE.Unboxb.18",w/2,22,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
                 draw.SimpleText("Case Contents","BCORE.Unboxs.12",w/2,40,ColorAlpha(color_white,120),TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
@@ -227,13 +227,13 @@ function BCORE.Unbox:RefreshShop()
             end)
 
             -- Standard door-icon exit button - the same one every other popup in this codebase
-            -- uses (F4, the main Unbox frame, the socket menu, ...), not a one-off red "✕".
+            -- uses (F4, the main Unbox frame, the socket menu, ...), not a one-off red "âœ•".
             local closeBtn = BUi.Create("DButton", frame)
             closeBtn:SetPos(frame:GetWide()-38, 6); closeBtn:SetSize(32,32); closeBtn:SetText("")
             closeBtn:SetMouseInputEnabled(true)
             closeBtn:BUi():ClearPaint():Background(Color(56,56,56,200),5):FadeIn(0.5):On("Paint",function(_,w2,h2)
                 draw.RoundedBox(5,1,1,w2-2,h2-2,colors.accent)
-                BUi.DrawImgur(0,0,w2,h2,"https://invisibalfan-ui.github.io/bui_images/images/0cjxwbc.png",color_white)
+                BUi.DrawImgur(0,0,w2,h2,"https://beep242.github.io/bui_images/images/0cjxwbc.png",color_white)
             end):FadeHover(Color(100,0,0,90),6,8)
             closeBtn:On("DoClick", function() frame:Remove() end)
 
@@ -328,7 +328,7 @@ function BCORE.Unbox:RefreshShop()
 
                 -- srl54gk animated pattern
                 BUi.DrawImgur(2,2,w-4,h-4,
-                    "https://invisibalfan-ui.github.io/bui_images/images/srl54gk.png",
+                    "https://beep242.github.io/bui_images/images/srl54gk.png",
                     Color(255,255,255,255), 10)
 
                 -- rclr tint overlay
@@ -379,7 +379,7 @@ function BCORE.Unbox:RefreshShop()
                 draw.RoundedBox(6,0,0,w2,h2,color_white)
                 BUi.masks.End()
                 draw.RoundedBox(6,1,1,w2-2,h2-2,Color(40+s.hov*20,60+s.hov*20,100+s.hov*20))
-                draw.SimpleText("👁  VIEW CONTENTS","BCORE.Unboxb.12",
+                draw.SimpleText("ðŸ‘  VIEW CONTENTS","BCORE.Unboxb.12",
                     w2/2,h2/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
             end)
             vb:BUi():On("DoClick",function() showCaseContents(ckey,case) end)
@@ -407,7 +407,7 @@ function BCORE.Unbox:RefreshShop()
             bb:BUi():On("DoClick",function()
                 local q=S.qty[ckey] or 1
                 thread.Start("BCORE:UnboxBuyCase",{caseKey=ckey,amount=q})
-                BCORE.Unbox:Toast("Purchased!",BUi.Truncate(cname,20).." ×"..q,colors.tert)
+                BCORE.Unbox:Toast("Purchased!",BUi.Truncate(cname,20).." Ã—"..q,colors.tert)
                 timer.Simple(0.7,function()
                     if IsValid(BCORE.Unbox.ShopGrid) then
                         BCORE.Unbox._shopCacheKey=nil; BCORE.Unbox:RefreshShop()
@@ -419,7 +419,7 @@ function BCORE.Unbox:RefreshShop()
         grid:SizeToChildren(false,true)
         return
     end
-    -- ── END CASES TAB ───────────────────────────────────────────────────────
+    -- â”€â”€ END CASES TAB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     local rw={}
     for i,r in ipairs(RORDER) do rw[r]=#RORDER-i+1 end
@@ -501,7 +501,7 @@ function BCORE.Unbox:RefreshShop()
 
             -- srl54gk animated pattern (full card)
             BUi.DrawImgur(2,2,w-4,h-4,
-                "https://invisibalfan-ui.github.io/bui_images/images/srl54gk.png",
+                "https://beep242.github.io/bui_images/images/srl54gk.png",
                 Color(255,255,255,255), 10)
 
             -- rclr tint
@@ -561,7 +561,7 @@ function BCORE.Unbox:RefreshShop()
         qb:BUi():ClearPaint():Background(colors.light,6):On("Paint",function(s,w,h)
             draw.RoundedBox(6,1,1,w-2,h-2,
                 Color(colors.accent.r+s.hov*14,colors.accent.g+s.hov*14,colors.accent.b+s.hov*14))
-            draw.SimpleText("×"..(S.qty[name] or 1),"BCORE.Unboxs.15",
+            draw.SimpleText("Ã—"..(S.qty[name] or 1),"BCORE.Unboxs.15",
                 w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
         end)
         qb:MoveToFront()
@@ -597,7 +597,7 @@ function BCORE.Unbox:RefreshShop()
             local q=S.qty[name] or 1
             thread.Start("BCORE:UnboxPurchase",{itemName=name,amount=q})
             bb._rip=1
-            BCORE.Unbox:Toast("Purchase sent!",BUi.Truncate(dname,22).." ×"..q,colors.tert)
+            BCORE.Unbox:Toast("Purchase sent!",BUi.Truncate(dname,22).." Ã—"..q,colors.tert)
             timer.Simple(0.7,function()
                 if IsValid(BCORE.Unbox.ShopGrid) then
                     BCORE.Unbox._shopCacheKey=nil; BCORE.Unbox:RefreshShop()

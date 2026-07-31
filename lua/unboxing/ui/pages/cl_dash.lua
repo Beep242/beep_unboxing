@@ -39,7 +39,7 @@ function BCORE.Unbox:Dash()
         BUi.masks.End()
 
         draw.RoundedBox(12,2,2,w-4,h-4,colors.sec)
-        BUi.DrawImgur(2,2,w-4,h-4,"https://invisibalfan-ui.github.io/bui_images/images/srl54gk.png",color_white,10)
+        BUi.DrawImgur(2,2,w-4,h-4,"https://beep242.github.io/bui_images/images/srl54gk.png",color_white,10)
 
         BUi.masks.Start()
         surface.SetMaterial(BUi.Grad["Down"])
@@ -196,7 +196,7 @@ function BCORE.Unbox:RefreshDash()
             BUi.masks.End()
 
             draw.RoundedBox(10,2,2,w-4,h-4,colors.sec)
-            BUi.DrawImgur(2,2,w-4,h-4,"https://invisibalfan-ui.github.io/bui_images/images/srl54gk.png",color_white,8)
+            BUi.DrawImgur(2,2,w-4,h-4,"https://beep242.github.io/bui_images/images/srl54gk.png",color_white,8)
 
             BUi.masks.Start()
             surface.SetMaterial(BUi.Grad["Down"])
@@ -241,7 +241,7 @@ function BCORE.Unbox:RefreshDash()
         sb:SetText(""); sb:SetupTransition("hov",9,BUi.HoverFunc)
         sb:ClearPaint():Background(colors.light,6):On("Paint", function(s,w,h)
             draw.RoundedBox(6,1,1,w-2,h-2,Color(tclr.r,tclr.g,tclr.b,195+s.hov*35))
-            draw.SimpleText("VIEW IN SHOP  →","BCORE.Unboxs.13",w/2,h/2,
+            draw.SimpleText("VIEW IN SHOP  â†’","BCORE.Unboxs.13",w/2,h/2,
                 color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
         end)
         sb:On("DoClick", function() BCORE.Unbox:SelectPage("Shop") end)

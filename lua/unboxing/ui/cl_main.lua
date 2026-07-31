@@ -11,21 +11,21 @@ for i = 1, 200 do
 end
 
 --------------------------------------------------------------------------------
--- ICON TABLE  — replace every PLACEHOLDER_* with your own Imgur URL
+-- ICON TABLE  â€” replace every PLACEHOLDER_* with your own Imgur URL
 --------------------------------------------------------------------------------
 BCORE.Unbox.Icons = {
-    exit      = "https://invisibalfan-ui.github.io/bui_images/images/0cjxwbc.png",
-    search    = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    home      = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    shop      = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    inventory = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    settings  = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    case      = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    coin      = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    bag       = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    star      = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    tradein   = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
-    gambling  = "https://invisibalfan-ui.github.io/bui_images/images/mkp8lur.png",
+    exit      = "https://beep242.github.io/bui_images/images/0cjxwbc.png",
+    search    = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    home      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    shop      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    inventory = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    settings  = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    case      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    coin      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    bag       = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    star      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    tradein   = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    gambling  = "https://beep242.github.io/bui_images/images/mkp8lur.png",
 }
 local IC = BCORE.Unbox.Icons
 
@@ -39,7 +39,7 @@ local IC = BCORE.Unbox.Icons
 -- copy of this same hook; whichever one happened to load last was winning and the
 -- other(s)' logic never ran at all - in practice this meant the shop's own cache-key
 -- reset below was getting silently dropped, so a player who opened the store before
--- the server's data had arrived would see the "Waiting for server data…" placeholder
+-- the server's data had arrived would see the "Waiting for server dataâ€¦" placeholder
 -- forever, since nothing ever told RefreshShop() to actually rebuild once real data
 -- showed up. Refreshing unconditionally (not gated on which specific tab is visible
 -- right now) means every page is already correct the instant the player switches to
@@ -246,7 +246,7 @@ function BCORE.Unbox:Open(parent)
     BCORE.Unbox.search = BUi.Create("DTextEntry", sh)
     BCORE.Unbox.search:Stick(FILL)
     BCORE.Unbox.search:ReadyTextbox()
-    BCORE.Unbox.search:SetPlaceholderText("Search items…")
+    BCORE.Unbox.search:SetPlaceholderText("Search itemsâ€¦")
     BCORE.Unbox.search:SetFont("BCORE.Unboxs.16")
     BCORE.Unbox.search:SetTextColor(colors.cwhite)
     BCORE.Unbox.search:SetCursorColor(colors.tert)

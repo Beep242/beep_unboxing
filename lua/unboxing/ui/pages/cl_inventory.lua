@@ -160,7 +160,20 @@ function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName, remainingCo
     local curOff     = -(CELL*3)
     local phase      = "spin"
     local pTime      = 0
-    local spinDur    = 1.6
+    -- Real, reported bug: spinDur used to be a flat 1.6s regardless of screen width, spinning at
+    -- a fixed CELL*22/sec rate - on a typical screen that covers roughly 32+ cells of distance,
+    -- well past tgtOff (only ~27 cells away), so the reel scrolled every single card clean off
+    -- the left edge (a blank reel) before "decel" phase ever started - which then had to reverse
+    -- direction and scroll BACKWARD to land back on the winner card. Exactly the reported
+    -- symptom: "it scrolls past all the cards then gets to the right one". Fixed by computing
+    -- spinDur from the REAL distance to tgtOff, so the spin phase always covers a fixed FRACTION
+    -- of it (SPIN_FRACTION) at the same blur speed - guaranteeing decel only ever has to keep
+    -- moving forward and ease smoothly into the winner, regardless of screen resolution or card
+    -- size, never backward and never past the end of the reel.
+    local SPIN_RATE     = 22   -- CELL/sec - same blur speed as before
+    local SPIN_FRACTION = 0.8  -- spin covers this much of the distance; decel eases the rest
+    local totalDist  = tgtOff - curOff
+    local spinDur    = math.Clamp((SPIN_FRACTION*totalDist)/(CELL*SPIN_RATE), 0.6, 2.4)
     local decelDur   = 2.4
     local spinAtDecel= 0
     local lastT      = SysTime()
@@ -210,31 +223,6 @@ function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName, remainingCo
         end
     end)
 
-    -- place in world - spawns a purely clientside decorative prop of the item (cl_placement.lua),
-    -- never touching the server. Closes this overlay the same way COLLECT & CLOSE/NEXT CASE
-    -- does, since placement mode takes over screen input right after.
-    local placeBtn = BUi.Create("DButton",ov)
-    placeBtn:SetSize(BUi:Scale(192),BUi:Scale(34))
-    placeBtn:SetPos(ScrW()/2-BUi:Scale(96), cY+RH+BUi:Scale(148))
-    placeBtn:SetText(""); placeBtn:SetAlpha(0)
-    placeBtn:ClearPaint():Background(colors.light,8):On("Paint", function(s,w,h)
-        draw.RoundedBox(8,0,0,w,h,ColorAlpha(Color(120,180,255),45))
-        draw.RoundedBox(8,1,1,w-2,h-2,colors.sec)
-        draw.SimpleText("PLACE IN WORLD","BCORE.Unboxb.13",w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-    end)
-    placeBtn:FadeHover(Color(255,255,255,18),8,10)
-    placeBtn:On("DoClick", function()
-        local itemDef = allItems[wonItem] or {}
-        ov:AlphaTo(0,0.2,0,function()
-            if IsValid(ov) then ov:Remove() end
-            BCORE.Unbox:StartPlacement(itemDef.model)
-            if hasMore then BCORE.Unbox:PlayNextOpenAnimation() end
-        end)
-        if IsValid(BCORE.Unbox.frame) then
-            BCORE.Unbox:RefreshInventory()
-        end
-    end)
-
     -- sparks
     local function spawnSparks()
         for _=1,22 do
@@ -255,7 +243,7 @@ function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName, remainingCo
         pTime=pTime+dt
 
         if phase=="spin" then
-            curOff=curOff+CELL*22*dt
+            curOff=curOff+CELL*SPIN_RATE*dt
             if pTime>=spinDur then phase="decel"; spinAtDecel=curOff; pTime=0 end
 
         elseif phase=="decel" then
@@ -267,7 +255,6 @@ function BCORE.Unbox:ShowOpenAnimation(wonItem, wonRarity, caseName, remainingCo
                 spawnSparks()
                 resP:AlphaTo(255,0.35,0.1)
                 closeBtn:AlphaTo(255,0.35,0.28)
-                placeBtn:AlphaTo(255,0.35,0.34)
                 -- flash winner card
                 for fl=1,5 do
                     timer.Simple(fl*0.11, function()
@@ -341,12 +328,8 @@ function BCORE.Unbox:Inventory()
     end)
 
     local casesScroll = BUi.Create("DHorizontalScroller",inv)
-    -- Was BUi:Scale(162) - RefreshInventory's own case cards are BUi:Scale(190) tall (sized for
-    -- a THIRD button row, PLACE IN WORLD, added under the existing qty/OPEN row - see that
-    -- function's own comment), but this container's height was never updated to match, so every
-    -- card - including its own PLACE IN WORLD button - got clipped off at the scroller's old,
-    -- shorter boundary. +10 on top of the card's own real height for a little breathing room.
-    casesScroll:Stick(TOP,0,8,0,8,0); casesScroll:SetTall(BUi:Scale(200)); casesScroll:ClearPaint()
+    -- +10 on top of the case card's own real height (RefreshInventory, below) for breathing room.
+    casesScroll:Stick(TOP,0,8,0,8,0); casesScroll:SetTall(BUi:Scale(162)); casesScroll:ClearPaint()
     BCORE.Unbox.CasesScroller = casesScroll
 
     -- items section label
@@ -387,9 +370,7 @@ function BCORE.Unbox:RefreshInventory()
             local cdef = caseDefs[cname] or {}
             local CW2  = BUi:Scale(142)
             local card = BUi.Create("DPanel",BCORE.Unbox.CasesScroller)
-            -- Tall enough for a third button row (PLACE IN WORLD, below) under the existing
-            -- qty/OPEN row.
-            card:SetSize(CW2,BUi:Scale(190)); card:DockMargin(6,5,0,5)
+            card:SetSize(CW2,BUi:Scale(152)); card:DockMargin(6,5,0,5)
             BCORE.Unbox.CasesScroller:AddPanel(card)
 
             card:SetupTransition("hov",10,BUi.HoverFuncChild)
@@ -463,27 +444,6 @@ function BCORE.Unbox:RefreshInventory()
                 BCORE.Unbox:Toast("Opening " .. amount .. "x…",cdef.Name or cname, tclr)
             end)
 
-            -- place in world - a physical "set the case down and it opens" ritual
-            -- (cl_placement.lua): spawns a clientside ghost of the CASE itself, and confirming
-            -- placement fires the real open-case request instead of leaving a permanent
-            -- decoration. Only ever opens exactly ONE case at a time - the qty selector/OPEN
-            -- button above stay the way to open several at once, since there's no sensible
-            -- "place a stack of 5" ritual. Only cases are ever placeable this way - an
-            -- already-unboxed ITEM has no place-in-world option at all anymore.
-            local pb=BUi.Create("DButton",card)
-            pb:SetPos(BUi:Scale(8),BUi:Scale(149)); pb:SetSize(CW2-BUi:Scale(16),BUi:Scale(28))
-            pb:SetText(""); pb:SetupTransition("hov",9,BUi.HoverFunc)
-            pb:ClearPaint():Background(colors.light,6):On("Paint", function(s,w,h)
-                draw.RoundedBox(6,1,1,w-2,h-2,
-                    Color(colors.accent.r+s.hov*14,colors.accent.g+s.hov*14,colors.accent.b+s.hov*14))
-                draw.SimpleText("PLACE IN WORLD","BCORE.Unboxb.11",w/2,h/2,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-            end)
-            pb:On("DoClick", function()
-                BCORE.Unbox:StartPlacement(cdef.Model or "models/props_c17/oildrum001.mdl", function()
-                    thread.Start("BCORE:UnboxOpenCase", {caseName=cname, amount=1})
-                    BCORE.Unbox:Toast("Opening…", cdef.Name or cname, tclr)
-                end)
-            end)
         end
         if not any then
             local ep=BUi.Create("DPanel",BCORE.Unbox.CasesScroller)
@@ -581,9 +541,7 @@ function BCORE.Unbox:RefreshInventory()
         mdl:SetModel(mp); mdl:SetCamPos(Vector(50,30,20)); mdl:SetLookAt(Vector(0,0,5))
         mdl.LayoutEntity=function(_,ent) ent:SetAngles(Angle(0,CurTime()*28,0)) end
 
-        -- use button - "place in world" was removed from item cards: placing was never meant
-        -- for already-unboxed items, only for CASES (see the case cards above) - placing a case
-        -- IS how you open it here, not a separate decoration feature.
+        -- use button
         local ub=BUi.Create("DButton",card)
         ub:SetPos(BUi:Scale(8),BUi:Scale(170)); ub:SetSize(CW3-BUi:Scale(16),BUi:Scale(36))
         ub:SetText(""); ub:SetupTransition("hov",9,BUi.HoverFunc)
