@@ -14,18 +14,18 @@ end
 -- ICON TABLE  — replace every PLACEHOLDER_* with your own Imgur URL
 --------------------------------------------------------------------------------
 BCORE.Unbox.Icons = {
-    exit      = "https://beep242.github.io/bui_images/images/0cjxwbc.png",
-    search    = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    home      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    shop      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    inventory = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    settings  = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    case      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    coin      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    bag       = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    star      = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    tradein   = "https://beep242.github.io/bui_images/images/mkp8lur.png",
-    gambling  = "https://beep242.github.io/bui_images/images/mkp8lur.png",
+    exit      = "https://Beep242.github.io/bui_images/images/gmod/0cjxwbc.png",
+    search    = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    home      = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    shop      = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    inventory = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    settings  = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    case      = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    coin      = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    bag       = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    star      = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    tradein   = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
+    gambling  = "https://Beep242.github.io/bui_images/images/gmod/mkp8lur.png",
 }
 local IC = BCORE.Unbox.Icons
 

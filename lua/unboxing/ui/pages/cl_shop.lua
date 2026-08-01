@@ -219,7 +219,7 @@ function BCORE.Unbox:RefreshShop()
                 draw.RoundedBox(12,0,0,w,h,colors.sec)
                 draw.RoundedBox(12,1,1,w-2,h-2,colors.sec)
                 BUi.DrawImgur(1,1,w-2,h-2,
-                    "https://beep242.github.io/bui_images/images/srl54gk.png",
+                    "https://Beep242.github.io/bui_images/images/gmod/srl54gk.png",
                     ColorAlpha(color_white,30),12)
                 draw.SimpleText(case.Name or ckey,"BCORE.Unboxb.18",w/2,22,color_white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
                 draw.SimpleText("Case Contents","BCORE.Unboxs.12",w/2,40,ColorAlpha(color_white,120),TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
@@ -233,7 +233,7 @@ function BCORE.Unbox:RefreshShop()
             closeBtn:SetMouseInputEnabled(true)
             closeBtn:BUi():ClearPaint():Background(Color(56,56,56,200),5):FadeIn(0.5):On("Paint",function(_,w2,h2)
                 draw.RoundedBox(5,1,1,w2-2,h2-2,colors.accent)
-                BUi.DrawImgur(0,0,w2,h2,"https://beep242.github.io/bui_images/images/0cjxwbc.png",color_white)
+                BUi.DrawImgur(0,0,w2,h2,"https://Beep242.github.io/bui_images/images/gmod/0cjxwbc.png",color_white)
             end):FadeHover(Color(100,0,0,90),6,8)
             closeBtn:On("DoClick", function() frame:Remove() end)
 
@@ -328,7 +328,7 @@ function BCORE.Unbox:RefreshShop()
 
                 -- srl54gk animated pattern
                 BUi.DrawImgur(2,2,w-4,h-4,
-                    "https://beep242.github.io/bui_images/images/srl54gk.png",
+                    "https://Beep242.github.io/bui_images/images/gmod/srl54gk.png",
                     Color(255,255,255,255), 10)
 
                 -- rclr tint overlay
@@ -501,7 +501,7 @@ function BCORE.Unbox:RefreshShop()
 
             -- srl54gk animated pattern (full card)
             BUi.DrawImgur(2,2,w-4,h-4,
-                "https://beep242.github.io/bui_images/images/srl54gk.png",
+                "https://Beep242.github.io/bui_images/images/gmod/srl54gk.png",
                 Color(255,255,255,255), 10)
 
             -- rclr tint

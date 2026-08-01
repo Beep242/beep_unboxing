@@ -39,7 +39,7 @@ function BCORE.Unbox:Dash()
         BUi.masks.End()
 
         draw.RoundedBox(12,2,2,w-4,h-4,colors.sec)
-        BUi.DrawImgur(2,2,w-4,h-4,"https://beep242.github.io/bui_images/images/srl54gk.png",color_white,10)
+        BUi.DrawImgur(2,2,w-4,h-4,"https://Beep242.github.io/bui_images/images/gmod/srl54gk.png",color_white,10)
 
         BUi.masks.Start()
         surface.SetMaterial(BUi.Grad["Down"])
@@ -196,7 +196,7 @@ function BCORE.Unbox:RefreshDash()
             BUi.masks.End()
 
             draw.RoundedBox(10,2,2,w-4,h-4,colors.sec)
-            BUi.DrawImgur(2,2,w-4,h-4,"https://beep242.github.io/bui_images/images/srl54gk.png",color_white,8)
+            BUi.DrawImgur(2,2,w-4,h-4,"https://Beep242.github.io/bui_images/images/gmod/srl54gk.png",color_white,8)
 
             BUi.masks.Start()
             surface.SetMaterial(BUi.Grad["Down"])
